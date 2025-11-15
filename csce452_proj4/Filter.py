@@ -12,7 +12,8 @@ from builtin_interfaces.msg import Time
 
 class ParticleFilter(Node):
     def __init__(self):
-        self.particles: list[Particle] = {}
+        self.map: OccupancyGrid
+        self.particles: list[Particle] = []
         self.map_pub = self.create_publisher(OccupancyGrid, '/floor', 10)
         #Get map from corresponding file (passed as parameter)
         self.declare_parameter('world_file', '')
@@ -21,6 +22,8 @@ class ParticleFilter(Node):
         self.acrtion_msgs = self.create_subscription(Twist, '/cmd_vel', self.getAction, 10)
         #Sub to /floor_sensor topic
         self.obs_msgs = self.create_subscription(UInt8,'.floor_sensor', self.getObservation, 10)
+        
+        #populate particles evenly over map
         pass 
 
     def pubMap(self):
@@ -57,6 +60,7 @@ class ParticleFilter(Node):
                     map_data.append(-1) # unknown
 
         msg.data = map_data
+        self.map = msg
 
         self.map_pub.publish(msg)
     
