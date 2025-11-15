@@ -2,7 +2,7 @@ from sklearn.neighbors import KernelDensity
 import numpy as np
 
 class Particle():
-
+    #sensor data received on dark.world
     dark_data = np.array([135, 128, 150, 123, 145, 140, 123, 140, 148, 125, 
                           149, 137, 135, 148, 129, 132, 144, 130, 124, 134, 
                           142, 122, 129, 138, 148, 130, 143, 148, 143, 141, 
@@ -21,6 +21,8 @@ class Particle():
                           138, 143, 146, 136, 127, 122, 146, 129, 129, 129, 
                           129, 136, 149
                         ])
+    
+    #sensor data received on light.world
     light_data = np.array([106, 121, 131, 105, 107, 121, 110, 127, 115, 131, 
                            111, 107, 121, 111, 118, 115, 107, 121, 129, 102, 
                            131, 114, 128, 123, 122, 128, 129, 105, 116, 129, 
@@ -34,6 +36,7 @@ class Particle():
                            110, 109, 107
                         ])
 
+    #Calculates PDFs for light and dark squares using KDE, as sensor values do not closely follow gaussian model
     kde_dark = KernelDensity(kernel='gaussian', bandwidth=2.0).fit(dark_data.reshape(-1,1))
     kde_light = KernelDensity(kernel='gaussian', bandwidth=2.0).fit(light_data.reshape(-1,1))
 
