@@ -1,5 +1,6 @@
 from sklearn.neighbors import KernelDensity
 import numpy as np
+from geometry_msgs.msg import Pose2D
 
 class Particle():
     #sensor data received on dark.world
@@ -41,15 +42,15 @@ class Particle():
     kde_light = KernelDensity(kernel='gaussian', bandwidth=2.0).fit(light_data.reshape(-1,1))
 
 
-    def __init__(self, currState, color: str, obs:int):
-        self.state = currState
+    def __init__(self, currState:Pose2D , color: str, obs:int):
+        self.state: Pose2D = currState
         self.color: str = color #The color(light/dark) on the map at self.state
-        self.weight:float = self.prob(obs, self.state)
+        self.weight:float = self.prob(obs)
     
     def setWeight(self, obs:int):
         self.weight = self.prob(obs)
     
-    def setState(self, newState):
+    def setState(self, newState:Pose2D):
         self.state = newState
     
     def prob(self, obs:int):
@@ -67,3 +68,11 @@ class Particle():
         log_prob = Particle.kde_light.score_samples([[obs]])[0]
         return np.exp(log_prob)
 
+
+def main():
+    testObs = 112
+    testParticle: Particle = Particle(Pose2D(), "light", testObs)
+    print(f"Particle color: {testParticle.color} and obs value: {testObs}, and particle weight {testParticle.weight}")
+
+if __name__ == "__main__":
+    main()
