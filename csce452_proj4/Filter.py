@@ -23,8 +23,15 @@ class ParticleFilter(Node):
         self.acrtion_msgs = self.create_subscription(Twist, '/cmd_vel', self.getAction, 10)
         #Sub to /floor_sensor topic
         self.obs_msgs = self.create_subscription(UInt8,'.floor_sensor', self.getObservation, 10)
+        # sub to compass
         
-        #populate particles evenly over map, with the same weight
+        # populate particles evenly over map, with the same weight
+        # find particles in each column - divide number of particles by width of map (particle in middle of each column)
+        # Find column spacing - divide height of map * resolution by number of particles in each column
+        # Starting in bottom left, offset first particle alogn the x axis by half a resolution (sets to middle of column)
+        # Then add a resolution to the last particle added to row to get the x coord of next particle in row
+        # Then from the first particle in row, add the column spacing to move up to next row and repeat
+        # Repeat until map filled
         pass 
 
     def pubMap(self):
@@ -35,7 +42,6 @@ class ParticleFilter(Node):
         
         reso = map_yaml["resolution"]
         lines = map_yaml["map"].splitlines()
-        print(map_yaml["map"]) # DEBUG:REMOVE
 
         width = len(lines[0])
         height = len(lines)
@@ -96,13 +102,21 @@ class ParticleFilter(Node):
         pass
 
     def forwardProjection(self):
-        #If projects is out of bounds of the map, particle is invalid (needs to be replaced)
-        # Otherwise, model with gaussian noise??
+        # forward project movement of particle based on action
+        # Then add gaussain noise to final position
         pass 
 
     def reweight(self, obs: int):
-        for i in self.particles:
-            i.setWeight(obs)
+        for p in self.particles:
+            # if particle is outside map, force weight to be 0 (particle will never exit map) -> must be removed in resample
+            if((p.state.x > (self.map.info.width * self.map.info.resolution))
+                or (p.state.x < 0)
+                or (p.state.y > (self.map.info.height * self.map.info.resolution)) 
+                or (p.state.y < 0)
+            ):
+                p.weight = 0
+            else:
+                p.setWeight(obs)
     
     def resample(self):
         #Choose particles to keep with probability = weight of particle
