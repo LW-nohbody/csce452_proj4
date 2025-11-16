@@ -66,7 +66,17 @@ class ParticleFilter(Node):
         self.map_pub.publish(msg)
     
     def pubBestPosition(self):
-        msg = Pose2D()
+        best_weight: float = self.particles[0].weight
+        best_particle: Particle = self.particles[0]
+
+        # TODO: Find better method to get best guess position, right now just basing it on highest weight
+        for p in self.particles:
+            if(p.weight > best_weight):
+                best_weight = p.weight
+                best_particle = p
+
+        msg:Pose2D = p.state
+
         self.est_pose.publish(msg)
         pass
 
