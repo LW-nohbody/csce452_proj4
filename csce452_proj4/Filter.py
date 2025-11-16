@@ -8,6 +8,7 @@ from example_interfaces.msg import UInt8
 from geometry_msgs.msg import Pose
 import yaml
 from builtin_interfaces.msg import Time
+import random
 
 
 class ParticleFilter(Node):
@@ -23,7 +24,7 @@ class ParticleFilter(Node):
         #Sub to /floor_sensor topic
         self.obs_msgs = self.create_subscription(UInt8,'.floor_sensor', self.getObservation, 10)
         
-        #populate particles evenly over map
+        #populate particles evenly over map, with the same weight
         pass 
 
     def pubMap(self):
@@ -85,7 +86,7 @@ class ParticleFilter(Node):
         pass
 
     def forwardProjection(self):
-        #If projects is out of bounds of the map, particle is invalid
+        #If projects is out of bounds of the map, particle is invalid (needs to be replaced)
         # Otherwise, model with gaussian noise??
         pass 
 
@@ -95,4 +96,26 @@ class ParticleFilter(Node):
     
     def resample(self):
         #Choose particles to keep with probability = weight of particle
-        pass
+        # Create array of cumulative particle weight sums
+        # create a new particle array, start as empty
+        sum = 0
+        cum_sum: list[float] = [sum]
+        new_particles: list[Particle] = []
+        for i in range(len(self.particles)):
+            sum += self.particles[i].weight
+            cum_sum.append(sum)
+        
+        # randomly choose a number between 0-100
+        # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
+        # repeat N times - N is the number of particles you started with
+        while(len(new_particles) < len(self.particles)):
+            randNum:float =  float(random.randrange(0, 1000, 1)) / 1000.0
+            for i in range(1, len(cum_sum)):
+                if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
+                    new_particles.append(self.particles(i-1))
+            
+        # set the new resampled particle array as the new self.particles
+        if(len(new_particles) != len(self.particles)): 
+            raise RuntimeError("new particle array must be same length as old particle array")
+        else:
+            self.particles = new_particles[:]
