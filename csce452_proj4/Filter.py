@@ -75,7 +75,7 @@ class ParticleFilter(Node):
                 best_weight = p.weight
                 best_particle = p
 
-        msg:Pose2D = p.state
+        msg:Pose2D = best_particle.state
 
         self.est_pose.publish(msg)
         pass
