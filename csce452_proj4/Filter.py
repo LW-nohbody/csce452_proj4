@@ -4,8 +4,9 @@ from Particle import Particle
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose2D
 from geometry_msgs.msg import Twist
-from example_interfaces.msg import UInt8
 from geometry_msgs.msg import Pose
+from example_interfaces.msg import UInt8
+from example_interfaces.msg import Float32
 import yaml
 from builtin_interfaces.msg import Time
 import random
@@ -22,8 +23,10 @@ class ParticleFilter(Node):
         #Subscribe to /cmd_vel topic
         self.acrtion_msgs = self.create_subscription(Twist, '/cmd_vel', self.getAction, 10)
         #Sub to /floor_sensor topic
-        self.obs_msgs = self.create_subscription(UInt8,'.floor_sensor', self.getObservation, 10)
+        self.obs_msgs = self.create_subscription(UInt8,'/floor_sensor', self.getObservation, 10)
         # sub to compass
+        self.curr_angle:float = 0.0
+        self.compass_msgs = self.create_subscription(Float32, '/compass', self.getAngle, 10)
         
         # populate particles evenly over map, with the same weight
         # find particles in each column - divide number of particles by width of map (particle in middle of each column)
@@ -86,6 +89,9 @@ class ParticleFilter(Node):
         self.est_pose.publish(msg)
         pass
 
+    def getAngle(self, msg:Float32):
+        self.curr_angle = msg.data
+
     def getObservation(self, msg:UInt8):
         newObs: int = msg.data
         #After getting the new observation, reweight each particle
@@ -133,7 +139,7 @@ class ParticleFilter(Node):
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         # repeat N times - N is the number of particles you started with
         while(len(new_particles) < len(self.particles)):
-            randNum:float =  float(random.randrange(0, 1000, 1)) / 1000.0
+            randNum:float =  float(random.randrange(1, 1000, 1)) / 1000.0
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
                     new_particles.append(self.particles(i-1))
