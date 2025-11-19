@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'filter = csce452_proj4/Filter:main'
+            'filter = csce452_proj4.Filter:main'
         ],
     },
 )
