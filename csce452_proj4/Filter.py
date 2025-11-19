@@ -29,13 +29,19 @@ class ParticleFilter(Node):
         self.compass_msgs = self.create_subscription(Float32, '/compass', self.getAngle, 10)
         
         # populate particles evenly over map, with the same weight
-        # find particles in each column - divide number of particles by width of map (particle in middle of each column)
-        # Find column spacing - divide height of map * resolution by number of particles in each column
-        # Starting in bottom left, offset first particle alogn the x axis by half a resolution (sets to middle of column)
-        # Then add a resolution to the last particle added to row to get the x coord of next particle in row
-        # Then from the first particle in row, add the column spacing to move up to next row and repeat
-        # Repeat until map filled
-        pass 
+        num_particles = 1000
+        init_weight:float = 1/num_particles
+        particles_per_col = num_particles/self.map.info.width
+        col_spacing = self.map.info.height*self.map.info.resolution / particles_per_col
+
+        for i in range(self.map.info.width):
+            for j in range(particles_per_col):
+                particle_pose = Pose2D(x=self.map.info.width * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
+                map_row:int = int((col_spacing*j) / self.map.info.resolution)
+                color = "light" if self.map.data[map_row][i] == '.' else "dark"
+                new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
+                new_particle.weight = init_weight
+                self.particles.append(new_particle)
 
     def pubMap(self):
         value = self.get_parameter('world_file').get_parameter_value().string_value
@@ -75,19 +81,24 @@ class ParticleFilter(Node):
         self.map_pub.publish(msg)
     
     def pubBestPosition(self):
-        best_weight: float = self.particles[0].weight
-        best_particle: Particle = self.particles[0]
+        # best_weight: float = self.particles[0].weight
+        # best_particle: Particle = self.particles[0]
 
-        # TODO: Find better method to get best guess position, right now just basing it on highest weight
+        # # TODO: Find better method to get best guess position, right now just basing it on highest weight
+        # for p in self.particles:
+        #     if(p.weight > best_weight):
+        #         best_weight = p.weight
+        #         best_particle = p
+        # msg: Pose2D = best_particle.state
+
+        # TODO: What about clusters? Weighted average won't deal well with multiple clusters
+        best_pose: Pose2D = Pose2D(x=0, y=0, theta=0)
         for p in self.particles:
-            if(p.weight > best_weight):
-                best_weight = p.weight
-                best_particle = p
+            best_pose = Pose2D(x=best_pose.x + p.state.x * p.weight, y=best_pose.y + p.state.y * p.weight, theta=best_pose.theta + p.state.theta * p.weight)
 
-        msg:Pose2D = best_particle.state
+        msg:Pose2D = best_pose
 
         self.est_pose.publish(msg)
-        pass
 
     def getAngle(self, msg:Float32):
         self.curr_angle = msg.data
@@ -101,15 +112,21 @@ class ParticleFilter(Node):
         self.resample()
         pass 
 
-    def getAction(self, msg):
+    def getAction(self, msg:Twist):
+        lin_vel = msg.linear.x
+        ang_vel = msg.angular.z
 
         #After getting the new action, forward projection each particle
-        self.forwardProjection()
+        self.forwardProjection(lin_vel, ang_vel)
         pass
 
-    def forwardProjection(self):
+    def forwardProjection(self, lin_vel, ang_vel):
         # forward project movement of particle based on action
+        # Only linear velocity can just propagate in direction ie) x += vel*cos(theta)
+        # TODO: How to account for linear + angular velocity - curve?
+
         # Then add gaussain noise to final position
+        # Fix each particles theta to self.curr_angle # TODO: Move to getAngle() ??
         pass 
 
     def reweight(self, obs: int):
