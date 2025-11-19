@@ -10,6 +10,7 @@ from example_interfaces.msg import Float32
 import yaml
 from builtin_interfaces.msg import Time
 import random
+import math
 
 
 class ParticleFilter(Node):
@@ -81,16 +82,6 @@ class ParticleFilter(Node):
         self.map_pub.publish(msg)
     
     def pubBestPosition(self):
-        # best_weight: float = self.particles[0].weight
-        # best_particle: Particle = self.particles[0]
-
-        # # TODO: Find better method to get best guess position, right now just basing it on highest weight
-        # for p in self.particles:
-        #     if(p.weight > best_weight):
-        #         best_weight = p.weight
-        #         best_particle = p
-        # msg: Pose2D = best_particle.state
-
         # TODO: What about clusters? Weighted average won't deal well with multiple clusters
         best_pose: Pose2D = Pose2D(x=0, y=0, theta=0)
         for p in self.particles:
@@ -122,12 +113,34 @@ class ParticleFilter(Node):
 
     def forwardProjection(self, lin_vel, ang_vel):
         # forward project movement of particle based on action
-        # Only linear velocity can just propagate in direction ie) x += vel*cos(theta)
-        # TODO: How to account for linear + angular velocity - curve?
+        if(lin_vel != 0) and (ang_vel != 0):
+            for p in self.particles:
+                new_x = p.state.x + lin_vel/ang_vel * (math.sin(self.curr_angle) - math.sin(p.state.theta))
+                new_y = p.state.y - lin_vel/ang_vel * (math.cos(self.curr_angle) - math.cos(p.state.theta))
+                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+        elif lin_vel != 0:
+            for p in self.particles:
+                new_x = p.state.x + lin_vel * math.cos(p.state.theta)
+                new_y = p.state.y + lin_vel * math.sin(p.state.theta)
+                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+        elif ang_vel != 0:
+            for p in self.particles:
+                p.state.theta = self.curr_angle        
+                
 
-        # Then add gaussain noise to final position
-        # Fix each particles theta to self.curr_angle # TODO: Move to getAngle() ??
-        pass 
+        # Simulate the noise in the movements
+        std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
+        for p in self.particles:
+            # Add gaussian noise to new position
+            p.state.x += random.gauss(0, std_dev)
+            p.state.y += random.gauss(0, std_dev)
+
+
+            # Update expected color
+            map_row:int = math.floor(p.state.y/self.map.info.resolution)
+            map_col:int = math.floor(p.state.x/self.map.info.resolution)
+            p.color = "light" if self.map.data[map_row][map_col] == '.' else "dark"
+         
 
     def reweight(self, obs: int):
         for p in self.particles:
@@ -143,8 +156,6 @@ class ParticleFilter(Node):
     
     def resample(self):
         #Choose particles to keep with probability = weight of particle
-        # Create array of cumulative particle weight sums
-        # create a new particle array, start as empty
         sum = 0
         cum_sum: list[float] = [sum]
         new_particles: list[Particle] = []
@@ -152,16 +163,13 @@ class ParticleFilter(Node):
             sum += self.particles[i].weight
             cum_sum.append(sum)
         
-        # randomly choose a number between 0-100
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
-        # repeat N times - N is the number of particles you started with
         while(len(new_particles) < len(self.particles)):
             randNum:float =  float(random.randrange(1, 1000, 1)) / 1000.0
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
                     new_particles.append(self.particles(i-1))
             
-        # set the new resampled particle array as the new self.particles
         if(len(new_particles) != len(self.particles)): 
             raise RuntimeError("new particle array must be same length as old particle array")
         else:
