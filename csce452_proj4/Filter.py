@@ -174,3 +174,19 @@ class ParticleFilter(Node):
             raise RuntimeError("new particle array must be same length as old particle array")
         else:
             self.particles = new_particles[:]
+
+
+def main():
+    rclpy.init()
+
+    filter = ParticleFilter()
+
+    rclpy.spin(filter)
+
+    filter.destroy_node()
+
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
