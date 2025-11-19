@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from Particle import Particle
+from .Particle import Particle
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose2D
 from geometry_msgs.msg import Twist
@@ -15,7 +15,8 @@ import math
 
 class ParticleFilter(Node):
     def __init__(self):
-        self.map: OccupancyGrid
+        super().__init__('filter')
+        self.map: OccupancyGrid = OccupancyGrid()
         self.particles: list[Particle] = []
         self.map_pub = self.create_publisher(OccupancyGrid, '/floor', 10)
         #Get map from corresponding file (passed as parameter)
@@ -29,6 +30,8 @@ class ParticleFilter(Node):
         self.curr_angle:float = 0.0
         self.compass_msgs = self.create_subscription(Float32, '/compass', self.getAngle, 10)
         
+        #TODO: wait until map and some basic robot info is fetched before populating map
+
         # populate particles evenly over map, with the same weight
         num_particles = 1000
         init_weight:float = 1/num_particles
