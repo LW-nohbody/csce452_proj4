@@ -18,19 +18,12 @@ class ParticleFilter(Node):
         super().__init__('filter')
         self.map: OccupancyGrid = OccupancyGrid()
         self.particles: list[Particle] = []
-        self.map_pub = self.create_publisher(OccupancyGrid, '/floor', 10)
-        #Get map from corresponding file (passed as parameter)
-        self.declare_parameter('world_file', '')
-        self.est_pose = self.create_publisher(Pose2D, '/estimated_pose', 10)
-        #Subscribe to /cmd_vel topic
-        self.acrtion_msgs = self.create_subscription(Twist, '/cmd_vel', self.getAction, 10)
-        #Sub to /floor_sensor topic
-        self.obs_msgs = self.create_subscription(UInt8,'/floor_sensor', self.getObservation, 10)
-        # sub to compass
         self.curr_angle:float = 0.0
-        self.compass_msgs = self.create_subscription(Float32, '/compass', self.getAngle, 10)
-        
-        #TODO: wait until map and some basic robot info is fetched before populating map
+
+        # publish map to /floor topic
+        self.map_pub = self.create_publisher(OccupancyGrid, '/floor', 10)
+        self.declare_parameter('world_file', '')
+        self.pubMap() # Intially create and publish the map
 
         # populate particles evenly over map, with the same weight
         num_particles = 1000
@@ -46,6 +39,21 @@ class ParticleFilter(Node):
                 new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
                 new_particle.weight = init_weight
                 self.particles.append(new_particle)
+        # publish map every 5 seconds
+        self.map_timer = self.create_timer(5, self.pubMap)
+
+        # Publish best guess pose to /estimated_pose topic
+        self.est_pose = self.create_publisher(Pose2D, '/estimated_pose', 10)
+        self.best_estimate = self.create_timer(2, self.pubBestPosition) #publish every 2 seconds
+
+        #Subscribe to /cmd_vel topic
+        self.acrtion_msgs = self.create_subscription(Twist, '/cmd_vel', self.getAction, 10)
+        #Sub to /floor_sensor topic
+        self.obs_msgs = self.create_subscription(UInt8,'/floor_sensor', self.getObservation, 10)
+        # sub to /compass topic
+        self.compass_msgs = self.create_subscription(Float32, '/compass', self.getAngle, 10)
+        
+        
 
     def pubMap(self):
         value = self.get_parameter('world_file').get_parameter_value().string_value
@@ -104,7 +112,6 @@ class ParticleFilter(Node):
 
         #After reweighting all particles, resample them
         self.resample()
-        pass 
 
     def getAction(self, msg:Twist):
         lin_vel = msg.linear.x
@@ -112,7 +119,6 @@ class ParticleFilter(Node):
 
         #After getting the new action, forward projection each particle
         self.forwardProjection(lin_vel, ang_vel)
-        pass
 
     def forwardProjection(self, lin_vel, ang_vel):
         # forward project movement of particle based on action
