@@ -3,9 +3,18 @@
 <package format="3">
   <name>csce452_proj4</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="lance.wiley09@tamu.edu">nohbody</maintainer>
+  <description>Localization of robot in 2D space using particle filter and noisy color sensor</description>
+  <maintainer email="lance.wiley09@tamu.edu">Lance Wiley</maintainer>
   <license>Apache-2.0</license>
+  <exec-depend>rclpy</exec-depend>
+  <exec-depend>geometry_msgs</exec-depend>
+  <exec-depend>nav_msgs</exec-depend>
+  <exec-depend>example_interfaces</exec-depend>
+  <exec-depend>builtin_interfaces</exec-depend>
+  <exec-depend>yaml</exec-depend>
+  <exec-depend>random</exec-depend>
+  <exec-depend>math</exec-depend>
+  <exec-depend>Particle</exec-depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

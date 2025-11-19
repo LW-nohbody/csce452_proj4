@@ -13,9 +13,9 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='nohbody',
+    maintainer='Lance Wiley',
     maintainer_email='lance.wiley09@tamu.edu',
-    description='TODO: Package description',
+    description='Localization of robot in 2D space using particle filter and noisy color sensor',
     license='Apache-2.0',
     extras_require={
         'test': [
@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'filter = csce452_proj4/Filter:main'
         ],
     },
 )
