@@ -57,8 +57,7 @@ class Particle():
         if(self.color == "dark"):
             return self.darkProb(obs)
         elif(self.color == "light"):
-            return self.lightProb(obs)
-        pass 
+            return self.lightProb(obs) 
     
     def darkProb(self, obs:int):
         log_prob = Particle.kde_dark.score_samples([[obs]])[0]
