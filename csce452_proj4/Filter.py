@@ -141,10 +141,21 @@ class ParticleFilter(Node):
 
         # Simulate the noise in the movements
         std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
+        num_out_of_bounds = 0
         for p in self.particles:
             # Add gaussian noise to new position
             p.state.x += random.gauss(0, std_dev)
             p.state.y += random.gauss(0, std_dev)
+
+            if((p.state.x > (self.map.info.width * self.map.info.resolution))
+                or (p.state.x < 0)
+                or (p.state.y > (self.map.info.height * self.map.info.resolution)) 
+                or (p.state.y < 0)
+            ):
+                num_out_of_bounds += 1
+
+            if(num_out_of_bounds == len(self.particles)):
+                raise RuntimeError("All particles invalid from forward projection")
 
 
             # Update expected color
@@ -175,10 +186,13 @@ class ParticleFilter(Node):
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
+        num_zero_sums = 1
         new_particles: list[Particle] = []
         for i in range(len(self.particles)):
             sum += self.particles[i].weight
             cum_sum.append(sum)
+            if(sum == 0): num_zero_sums+=1
+        if(num_zero_sums == len(cum_sum)): raise RuntimeError("No non-zero weighted particles remain")
         
         self.get_logger().info("Entering resampling loop")
         
@@ -188,7 +202,8 @@ class ParticleFilter(Node):
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
                     new_particles.append(self.particles[i-1])
-            
+                    value_appended = True
+                    break
             # print(len(new_particles))
         
         self.get_logger().info("exiting resample loop")
