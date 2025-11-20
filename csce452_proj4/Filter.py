@@ -28,14 +28,15 @@ class ParticleFilter(Node):
         # populate particles evenly over map, with the same weight
         num_particles = 1000
         init_weight:float = 1/num_particles
-        particles_per_col = num_particles/self.map.info.width
-        col_spacing = self.map.info.height*self.map.info.resolution / particles_per_col
+        particles_per_col:int = math.ceil(num_particles/self.map.info.width)
+        col_spacing:float = self.map.info.height*self.map.info.resolution / particles_per_col
 
-        for i in range(self.map.info.width):
-            for j in range(particles_per_col):
+        for i in range(self.map.info.width): # loops through the row
+            for j in range(particles_per_col): # adds to the columns
                 particle_pose = Pose2D(x=self.map.info.width * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
                 map_row:int = int((col_spacing*j) / self.map.info.resolution)
-                color = "light" if self.map.data[map_row][i] == '.' else "dark"
+                map_index:int = self.map.info.width * map_row + i # map.data is in row major order
+                color = "light" if self.map.data[map_index] == 0 else "dark"
                 new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
                 new_particle.weight = init_weight
                 self.particles.append(new_particle)
@@ -121,6 +122,7 @@ class ParticleFilter(Node):
         self.forwardProjection(lin_vel, ang_vel)
 
     def forwardProjection(self, lin_vel, ang_vel):
+        self.get_logger().info("Projecting")
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             for p in self.particles:
@@ -148,7 +150,12 @@ class ParticleFilter(Node):
             # Update expected color
             map_row:int = math.floor(p.state.y/self.map.info.resolution)
             map_col:int = math.floor(p.state.x/self.map.info.resolution)
-            p.color = "light" if self.map.data[map_row][map_col] == '.' else "dark"
+            map_index = map_col + (map_row * self.map.info.width)
+            if(map_index > len(self.map.data) or (map_index < 0)):
+                # self.get_logger().info(f"Particle positioned at ({p.state.x}, {p.state.y}) is outside of map with width {self.map.info.width}, height {self.map.info.height}, and reso {self.map.info.resolution}")
+                p.color = "invalid"
+                continue
+            p.color = "light" if self.map.data[map_index] == 0 else "dark"
          
 
     def reweight(self, obs: int):
@@ -164,6 +171,7 @@ class ParticleFilter(Node):
                 p.setWeight(obs)
     
     def resample(self):
+        self.get_logger().info("Resampling")
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
@@ -172,14 +180,21 @@ class ParticleFilter(Node):
             sum += self.particles[i].weight
             cum_sum.append(sum)
         
+        self.get_logger().info("Entering resampling loop")
+        
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         while(len(new_particles) < len(self.particles)):
             randNum:float =  float(random.randrange(1, 1000, 1)) / 1000.0
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
-                    new_particles.append(self.particles(i-1))
+                    new_particles.append(self.particles[i-1])
             
-        if(len(new_particles) != len(self.particles)): 
+            # print(len(new_particles))
+        
+        self.get_logger().info("exiting resample loop")
+            
+        if(len(new_particles) != len(self.particles)) or (new_particles == []): 
+            self.get_logger().info("ERROR: Particle arrays differ")
             raise RuntimeError("new particle array must be same length as old particle array")
         else:
             self.particles = new_particles[:]
