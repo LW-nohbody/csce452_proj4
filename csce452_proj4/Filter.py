@@ -33,7 +33,7 @@ class ParticleFilter(Node):
 
         for i in range(self.map.info.width): # loops through the row
             for j in range(particles_per_col): # adds to the columns
-                particle_pose = Pose2D(x=self.map.info.width * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
+                particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
                 map_row:int = int((col_spacing*j) / self.map.info.resolution)
                 map_index:int = self.map.info.width * map_row + i # map.data is in row major order
                 color = "light" if self.map.data[map_index] == 0 else "dark"
@@ -96,8 +96,21 @@ class ParticleFilter(Node):
     def pubBestPosition(self):
         # TODO: What about clusters? Weighted average won't deal well with multiple clusters
         best_pose: Pose2D = Pose2D(x=0, y=0, theta=0)
+        sum_weight = 0.0
+
         for p in self.particles:
+            if p.color == "invalid":
+                continue
             best_pose = Pose2D(x=best_pose.x + p.state.x * p.weight, y=best_pose.y + p.state.y * p.weight, theta=best_pose.theta + p.state.theta * p.weight)
+            sum_weight += p.weight
+        
+        if sum_weight > 0.0:
+            best_pose.x /= sum_weight
+            best_pose.y /= sum_weight
+            best_pose.theta /= sum_weight
+        else:
+            self.get_logger().info("total weight 0")
+            return
 
         msg:Pose2D = best_pose
 
@@ -150,9 +163,13 @@ class ParticleFilter(Node):
             # Update expected color
             map_row:int = math.floor(p.state.y/self.map.info.resolution)
             map_col:int = math.floor(p.state.x/self.map.info.resolution)
-            map_index = map_col + (map_row * self.map.info.width)
-            if(map_index > len(self.map.data) or (map_index < 0)):
+            if(map_row < 0 or map_col < 0 or 
+               map_row >= self.map.info.height or map_col >= self.map.info.width):
                 # self.get_logger().info(f"Particle positioned at ({p.state.x}, {p.state.y}) is outside of map with width {self.map.info.width}, height {self.map.info.height}, and reso {self.map.info.resolution}")
+                p.color = "invalid"
+                continue
+            map_index = map_col + (map_row * self.map.info.width)
+            if map_index < 0 or map_index >= len(self.map.data):
                 p.color = "invalid"
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
@@ -181,13 +198,25 @@ class ParticleFilter(Node):
             cum_sum.append(sum)
         
         self.get_logger().info("Entering resampling loop")
+
+        if sum == 0.0:
+            self.get_logger().info("All weights are 0")
+            return
         
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
+        
         while(len(new_particles) < len(self.particles)):
-            randNum:float =  float(random.randrange(1, 1000, 1)) / 1000.0
+            randNum:float = random.uniform(0.0, sum)
+            found = False
+
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
                     new_particles.append(self.particles[i-1])
+                    found = True
+                    break
+            if not found:
+                self.get_logger().info(f"No particle found for randNum={randNum}, total_sum={total_sum}")
+                new_particles.append(self.particles[-1])
             
             # print(len(new_particles))
         
