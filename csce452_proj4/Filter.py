@@ -13,6 +13,9 @@ import random
 import math
 
 
+TWIST_MSG_PERIOD = 0.25
+DEBUG = True
+
 class ParticleFilter(Node):
     def __init__(self):
         super().__init__('filter')
@@ -33,7 +36,7 @@ class ParticleFilter(Node):
 
         for i in range(self.map.info.width): # loops through the row
             for j in range(particles_per_col): # adds to the columns
-                particle_pose = Pose2D(x=self.map.info.width * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
+                particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
                 map_row:int = int((col_spacing*j) / self.map.info.resolution)
                 map_index:int = self.map.info.width * map_row + i # map.data is in row major order
                 color = "light" if self.map.data[map_index] == 0 else "dark"
@@ -122,25 +125,26 @@ class ParticleFilter(Node):
         self.forwardProjection(lin_vel, ang_vel)
 
     def forwardProjection(self, lin_vel, ang_vel):
-        self.get_logger().info("Projecting")
+        self.get_logger().info(f"Projecting, lin_vel {lin_vel}, ang_vel: {ang_vel}")
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             for p in self.particles:
-                new_x = p.state.x + lin_vel/ang_vel * (math.sin(self.curr_angle) - math.sin(p.state.theta))
-                new_y = p.state.y - lin_vel/ang_vel * (math.cos(self.curr_angle) - math.cos(p.state.theta))
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                new_theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD
+                new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * TWIST_MSG_PERIOD
+                new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * TWIST_MSG_PERIOD
+                p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
             for p in self.particles:
-                new_x = p.state.x + lin_vel * math.cos(p.state.theta)
-                new_y = p.state.y + lin_vel * math.sin(p.state.theta)
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * TWIST_MSG_PERIOD
+                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * TWIST_MSG_PERIOD
+                p.state = Pose2D(x=new_x, y=new_y, theta=p.state.theta)
         elif ang_vel != 0:
             for p in self.particles:
-                p.state.theta = self.curr_angle        
+                p.state.theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD        
                 
 
         # Simulate the noise in the movements
-        std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
+        std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
         num_out_of_bounds = 0
         for p in self.particles:
             # Add gaussian noise to new position
@@ -151,22 +155,26 @@ class ParticleFilter(Node):
                 or (p.state.x < 0)
                 or (p.state.y > (self.map.info.height * self.map.info.resolution)) 
                 or (p.state.y < 0)
-            ):
-                num_out_of_bounds += 1
+            ): num_out_of_bounds += 1
 
             if(num_out_of_bounds == len(self.particles)):
-                raise RuntimeError("All particles invalid from forward projection")
+                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}")
 
 
             # Update expected color
             map_row:int = math.floor(p.state.y/self.map.info.resolution)
             map_col:int = math.floor(p.state.x/self.map.info.resolution)
             map_index = map_col + (map_row * self.map.info.width)
-            if(map_index > len(self.map.data) or (map_index < 0)):
+            if(map_index >= len(self.map.data) or (map_index < 0)):
                 # self.get_logger().info(f"Particle positioned at ({p.state.x}, {p.state.y}) is outside of map with width {self.map.info.width}, height {self.map.info.height}, and reso {self.map.info.resolution}")
                 p.color = "invalid"
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
+        
+        if(DEBUG):
+            minx = min(p.state.x for p in self.particles)
+            maxx = max(p.state.x for p in self.particles)
+            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}]")
          
 
     def reweight(self, obs: int):
@@ -182,7 +190,6 @@ class ParticleFilter(Node):
                 p.setWeight(obs)
     
     def resample(self):
-        self.get_logger().info("Resampling")
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
@@ -193,9 +200,7 @@ class ParticleFilter(Node):
             cum_sum.append(sum)
             if(sum == 0): num_zero_sums+=1
         if(num_zero_sums == len(cum_sum)): raise RuntimeError("No non-zero weighted particles remain")
-        
-        self.get_logger().info("Entering resampling loop")
-        
+                
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         while(len(new_particles) < len(self.particles)):
             randNum:float =  float(random.randrange(1, 1000, 1)) / 1000.0
@@ -204,10 +209,7 @@ class ParticleFilter(Node):
                     new_particles.append(self.particles[i-1])
                     value_appended = True
                     break
-            # print(len(new_particles))
-        
-        self.get_logger().info("exiting resample loop")
-            
+                    
         if(len(new_particles) != len(self.particles)) or (new_particles == []): 
             self.get_logger().info("ERROR: Particle arrays differ")
             raise RuntimeError("new particle array must be same length as old particle array")
