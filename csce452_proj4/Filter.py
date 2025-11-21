@@ -174,7 +174,9 @@ class ParticleFilter(Node):
         if(DEBUG):
             minx = min(p.state.x for p in self.particles)
             maxx = max(p.state.x for p in self.particles)
-            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}]")
+            miny = min(p.state.y for p in self.particles)
+            maxy = max(p.state.y for p in self.particles)
+            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}]")
          
 
     def reweight(self, obs: int):
