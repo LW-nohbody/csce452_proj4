@@ -13,6 +13,9 @@ import random
 import math
 
 
+TWIST_MSG_PERIOD = 0.25
+DEBUG = False
+
 class ParticleFilter(Node):
     def __init__(self):
         super().__init__('filter')
@@ -135,29 +138,38 @@ class ParticleFilter(Node):
         self.forwardProjection(lin_vel, ang_vel)
 
     def forwardProjection(self, lin_vel, ang_vel):
-        self.get_logger().info("Projecting")
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             for p in self.particles:
-                new_x = p.state.x + lin_vel/ang_vel * (math.sin(self.curr_angle) - math.sin(p.state.theta))
-                new_y = p.state.y - lin_vel/ang_vel * (math.cos(self.curr_angle) - math.cos(p.state.theta))
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                new_theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD
+                new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * TWIST_MSG_PERIOD
+                new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * TWIST_MSG_PERIOD
+                p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
             for p in self.particles:
-                new_x = p.state.x + lin_vel * math.cos(p.state.theta)
-                new_y = p.state.y + lin_vel * math.sin(p.state.theta)
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * TWIST_MSG_PERIOD
+                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * TWIST_MSG_PERIOD
+                p.state = Pose2D(x=new_x, y=new_y, theta=p.state.theta)
         elif ang_vel != 0:
             for p in self.particles:
-                p.state.theta = self.curr_angle        
-                
+                p.state.theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD        
 
         # Simulate the noise in the movements
-        std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
+        std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
+        num_out_of_bounds = 0
         for p in self.particles:
             # Add gaussian noise to new position
             p.state.x += random.gauss(0, std_dev)
             p.state.y += random.gauss(0, std_dev)
+
+            if((p.state.x > (self.map.info.width * self.map.info.resolution))
+                or (p.state.x < 0)
+                or (p.state.y > (self.map.info.height * self.map.info.resolution)) 
+                or (p.state.y < 0)
+            ): num_out_of_bounds += 1
+
+            if(num_out_of_bounds == len(self.particles)):
+                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}")
 
 
             # Update expected color
@@ -173,6 +185,13 @@ class ParticleFilter(Node):
                 p.color = "invalid"
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
+        
+        if(DEBUG):
+            minx = min(p.state.x for p in self.particles)
+            maxx = max(p.state.x for p in self.particles)
+            miny = min(p.state.y for p in self.particles)
+            maxy = max(p.state.y for p in self.particles)
+            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}]")
          
 
     def reweight(self, obs: int):
@@ -188,40 +207,34 @@ class ParticleFilter(Node):
                 p.setWeight(obs)
     
     def resample(self):
-        self.get_logger().info("Resampling")
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
+        num_zero_sums = 1
         new_particles: list[Particle] = []
         for i in range(len(self.particles)):
             sum += self.particles[i].weight
             cum_sum.append(sum)
-        
-        self.get_logger().info("Entering resampling loop")
-
-        if sum == 0.0:
-            self.get_logger().info("All weights are 0")
-            return
-        
+            if(sum == 0): num_zero_sums+=1
+        if(num_zero_sums == len(cum_sum)): raise RuntimeError("No non-zero weighted particles remain")
+                
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         
         while(len(new_particles) < len(self.particles)):
-            randNum:float = random.uniform(0.0, sum)
+            randNum:float = random.uniform(0.001, sum)
             found = False
 
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
-                    new_particles.append(self.particles[i-1])
-                    found = True
+                    temp_particle: Particle = Particle(
+                        Pose2D(x=self.particles[i-1].state.x, y=self.particles[i-1].state.y, theta=self.particles[i-1].state.theta),
+                        self.particles[i-1].color,
+                        0
+                    )
+                    temp_particle.weight = self.particles[i-1].weight
+                    new_particles.append(temp_particle)
                     break
-            if not found:
-                self.get_logger().info(f"No particle found for randNum={randNum}, total_sum={total_sum}")
-                new_particles.append(self.particles[-1])
-            
-            # print(len(new_particles))
-        
-        self.get_logger().info("exiting resample loop")
-            
+                    
         if(len(new_particles) != len(self.particles)) or (new_particles == []): 
             self.get_logger().info("ERROR: Particle arrays differ")
             raise RuntimeError("new particle array must be same length as old particle array")
