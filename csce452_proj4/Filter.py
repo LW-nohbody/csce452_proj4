@@ -14,7 +14,7 @@ import math
 
 
 TWIST_MSG_PERIOD = 0.25
-DEBUG = True
+DEBUG = False
 
 class ParticleFilter(Node):
     def __init__(self):
@@ -125,7 +125,6 @@ class ParticleFilter(Node):
         self.forwardProjection(lin_vel, ang_vel)
 
     def forwardProjection(self, lin_vel, ang_vel):
-        self.get_logger().info(f"Projecting, lin_vel {lin_vel}, ang_vel: {ang_vel}")
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             for p in self.particles:
@@ -141,7 +140,6 @@ class ParticleFilter(Node):
         elif ang_vel != 0:
             for p in self.particles:
                 p.state.theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD        
-                
 
         # Simulate the noise in the movements
         std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
@@ -165,8 +163,8 @@ class ParticleFilter(Node):
             map_row:int = math.floor(p.state.y/self.map.info.resolution)
             map_col:int = math.floor(p.state.x/self.map.info.resolution)
             map_index = map_col + (map_row * self.map.info.width)
+
             if(map_index >= len(self.map.data) or (map_index < 0)):
-                # self.get_logger().info(f"Particle positioned at ({p.state.x}, {p.state.y}) is outside of map with width {self.map.info.width}, height {self.map.info.height}, and reso {self.map.info.resolution}")
                 p.color = "invalid"
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
@@ -208,8 +206,13 @@ class ParticleFilter(Node):
             randNum:float =  float(random.randrange(1, 1000, 1)) / 1000.0
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
-                    new_particles.append(self.particles[i-1])
-                    value_appended = True
+                    temp_particle: Particle = Particle(
+                        Pose2D(x=self.particles[i-1].state.x, y=self.particles[i-1].state.y, theta=self.particles[i-1].state.theta),
+                        self.particles[i-1].color,
+                        0
+                    )
+                    temp_particle.weight = self.particles[i-1].weight
+                    new_particles.append(temp_particle)
                     break
                     
         if(len(new_particles) != len(self.particles)) or (new_particles == []): 
