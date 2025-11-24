@@ -13,6 +13,14 @@ import random
 import math
 
 
+TWIST_MSG_PERIOD = 0.25
+DEBUG = False
+TESTING = True
+TESTING_X = 2.21
+TESTING_Y = 5.64
+TESTING_THETA = -0.7
+TESTING_COLOR = "light"
+
 class ParticleFilter(Node):
     def __init__(self):
         super().__init__('filter')
@@ -40,6 +48,10 @@ class ParticleFilter(Node):
                 new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
                 new_particle.weight = init_weight
                 self.particles.append(new_particle)
+        
+        if(TESTING):
+            self.testing_particle = Particle(Pose2D(x=TESTING_X, y=TESTING_Y, theta=TESTING_THETA), TESTING_COLOR, 0)
+            self.test_pub = self.create_publisher(Pose2D, '/true_pos', 10)
         # publish map every 5 seconds
         self.map_timer = self.create_timer(5, self.pubMap)
 
@@ -119,6 +131,8 @@ class ParticleFilter(Node):
 
         msg:Pose2D = best_pose
         self.est_pose.publish(msg)
+        if(TESTING):
+            self.test_pub.publish(self.testing_particle.state)
 
     def getAngle(self, msg:Float32):
         self.curr_angle = msg.data
@@ -139,29 +153,49 @@ class ParticleFilter(Node):
         self.forwardProjection(lin_vel, ang_vel)
 
     def forwardProjection(self, lin_vel, ang_vel):
-        self.get_logger().info("Projecting")
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
+            if(TESTING):
+                new_theta = self.testing_particle.state.theta + ang_vel * TWIST_MSG_PERIOD
+                new_x = self.testing_particle.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(self.testing_particle.state.theta)) * TWIST_MSG_PERIOD
+                new_y = self.testing_particle.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(self.testing_particle.state.theta)) * TWIST_MSG_PERIOD
+                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
             for p in self.particles:
-                new_x = p.state.x + lin_vel/ang_vel * (math.sin(self.curr_angle) - math.sin(p.state.theta)) * 0.25
-                new_y = p.state.y - lin_vel/ang_vel * (math.cos(self.curr_angle) - math.cos(p.state.theta)) * 0.25
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                new_theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD
+                new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * TWIST_MSG_PERIOD
+                new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * TWIST_MSG_PERIOD
+                p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
+            if(TESTING):
+                new_x = self.testing_particle.state.x + lin_vel * math.cos(self.testing_particle.state.theta) * TWIST_MSG_PERIOD
+                new_y = self.testing_particle.state.y + lin_vel * math.sin(self.testing_particle.state.theta) * TWIST_MSG_PERIOD
+                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
             for p in self.particles:
-                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * 0.25
-                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * 0.25
+                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * TWIST_MSG_PERIOD
+                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * TWIST_MSG_PERIOD
                 p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
         elif ang_vel != 0:
+            if(TESTING):
+                self.testing_particle.state.theta = self.testing_particle.state.theta + ang_vel * TWIST_MSG_PERIOD
             for p in self.particles:
-                p.state.theta = self.curr_angle
-                
+                p.state.theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD        
 
         # Simulate the noise in the movements
-        std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
+        std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
+        num_out_of_bounds = 0
         for p in self.particles:
             # Add gaussian noise to new position
             p.state.x += random.gauss(0, std_dev)
             p.state.y += random.gauss(0, std_dev)
+
+            if((p.state.x > (self.map.info.width * self.map.info.resolution))
+                or (p.state.x < 0)
+                or (p.state.y > (self.map.info.height * self.map.info.resolution)) 
+                or (p.state.y < 0)
+            ): num_out_of_bounds += 1
+
+            if(num_out_of_bounds == len(self.particles)):
+                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}")
 
 
             # Update expected color
@@ -177,6 +211,19 @@ class ParticleFilter(Node):
                 p.color = "invalid"
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
+
+        if(TESTING):
+            map_row:int = math.floor(self.testing_particle.state.y/self.map.info.resolution)
+            map_col:int = math.floor(self.testing_particle.state.x/self.map.info.resolution)
+            map_index = map_col + (map_row * self.map.info.width)
+            self.testing_particle.color = "light" if self.map.data[map_index] == 0 else "dark"
+        
+        if(DEBUG):
+            minx = min(p.state.x for p in self.particles)
+            maxx = max(p.state.x for p in self.particles)
+            miny = min(p.state.y for p in self.particles)
+            maxy = max(p.state.y for p in self.particles)
+            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}]")
          
 
     def reweight(self, obs: int):
@@ -199,10 +246,10 @@ class ParticleFilter(Node):
             self.get_logger().warn("All weights are zero after reweighting.")
     
     def resample(self):
-        self.get_logger().info("Resampling")
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
+        num_zero_sums = 1
         new_particles: list[Particle] = []
         for i in range(len(self.particles)):
             sum += self.particles[i].weight
