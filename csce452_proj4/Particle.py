@@ -53,11 +53,21 @@ class Particle():
     def setState(self, newState:Pose2D):
         self.state = newState
     
+    def copy(self):
+        """Create a copy of this particle with a new state object"""
+        new_state = Pose2D(x=self.state.x, y=self.state.y, theta=self.state.theta)
+        new_particle = Particle(new_state, self.color, 0)  # obs doesn't matter for copy
+        new_particle.weight = self.weight
+        return new_particle
+    
     def prob(self, obs:int):
         if(self.color == "dark"):
             return self.darkProb(obs)
         elif(self.color == "light"):
-            return self.lightProb(obs) 
+            return self.lightProb(obs)
+        else:
+            # Invalid color - return 0 probability
+            return 0.0 
     
     def darkProb(self, obs:int):
         log_prob = Particle.kde_dark.score_samples([[obs]])[0]

@@ -109,23 +109,27 @@ class ParticleFilter(Node):
         # TODO: What about clusters? Weighted average won't deal well with multiple clusters
         best_pose: Pose2D = Pose2D(x=0, y=0, theta=0)
         sum_weight = 0.0
+        valid_particles = 0
 
         for p in self.particles:
             if p.color == "invalid":
                 continue
-            best_pose = Pose2D(x=best_pose.x + p.state.x * p.weight, y=best_pose.y + p.state.y * p.weight, theta=best_pose.theta + p.state.theta * p.weight)
+            valid_particles += 1
+            best_pose.x += p.state.x * p.weight
+            best_pose.y += p.state.y * p.weight
+            best_pose.theta += p.state.theta * p.weight
             sum_weight += p.weight
         
         if sum_weight > 0.0:
             best_pose.x /= sum_weight
             best_pose.y /= sum_weight
             best_pose.theta /= sum_weight
+            self.get_logger().info(f"Published estimated pose: x={best_pose.x:.3f}, y={best_pose.y:.3f}, theta={best_pose.theta:.3f} (valid particles: {valid_particles}/{len(self.particles)})")
         else:
-            self.get_logger().info("total weight 0")
+            self.get_logger().warn(f"total weight 0 - cannot publish pose. Valid particles: {valid_particles}/{len(self.particles)}")
             return
 
         msg:Pose2D = best_pose
-
         self.est_pose.publish(msg)
         if(TESTING):
             self.test_pub.publish(self.testing_particle.state)
@@ -226,15 +230,22 @@ class ParticleFilter(Node):
 
     def reweight(self, obs: int):
         for p in self.particles:
-            # if particle is outside map, force weight to be 0 (particle will never exit map) -> must be removed in resample
+            # if particle is outside map or invalid, force weight to be 0
             if((p.state.x > (self.map.info.width * self.map.info.resolution))
                 or (p.state.x < 0)
                 or (p.state.y > (self.map.info.height * self.map.info.resolution)) 
                 or (p.state.y < 0)
+                or (p.color == "invalid")
             ):
                 p.weight = 0
             else:
                 p.setWeight(obs)
+        sum_weights = sum(p.weight for p in self.particles)
+        if sum_weights > 0:
+            for p in self.particles:
+                p.weight /= sum_weights
+        else:
+            self.get_logger().warn("All weights are zero after reweighting.")
     
     def resample(self):
         #Choose particles to keep with probability = weight of particle
@@ -245,9 +256,15 @@ class ParticleFilter(Node):
         for i in range(len(self.particles)):
             sum += self.particles[i].weight
             cum_sum.append(sum)
-            if(sum == 0): num_zero_sums+=1
-        if(num_zero_sums == len(cum_sum)): raise RuntimeError("No non-zero weighted particles remain")
-                
+        
+        self.get_logger().info("Entering resampling loop")
+
+        if sum == 0.0:
+            self.get_logger().warn("All weights are 0 - reinitializing particles across map")
+            # Reinitialize particles when all weights are 0 (recovery mechanism)
+            self.reinitializeParticles()
+            return
+        
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         
         while(len(new_particles) < len(self.particles)):
@@ -256,13 +273,8 @@ class ParticleFilter(Node):
 
             for i in range(1, len(cum_sum)):
                 if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
-                    temp_particle: Particle = Particle(
-                        Pose2D(x=self.particles[i-1].state.x, y=self.particles[i-1].state.y, theta=self.particles[i-1].state.theta),
-                        self.particles[i-1].color,
-                        0
-                    )
-                    temp_particle.weight = self.particles[i-1].weight
-                    new_particles.append(temp_particle)
+                    # Create a copy of the particle instead of using the same reference
+                    new_particles.append(self.particles[i-1].copy())
                     found = True
                     break
                 if(DEBUG and not found):
@@ -272,7 +284,43 @@ class ParticleFilter(Node):
             self.get_logger().info("ERROR: Particle arrays differ")
             raise RuntimeError("new particle array must be same length as old particle array")
         else:
-            self.particles = new_particles[:]
+            self.particles = new_particles
+    
+    def reinitializeParticles(self):
+        """Reinitialize particles evenly across the map when filter loses track"""
+        num_particles = len(self.particles)
+        init_weight:float = 1.0/num_particles
+        particles_per_col:int = math.ceil(num_particles/self.map.info.width)
+        col_spacing:float = self.map.info.height*self.map.info.resolution / particles_per_col
+        
+        self.particles = []
+        for i in range(self.map.info.width):
+            for j in range(particles_per_col):
+                if len(self.particles) >= num_particles:
+                    break
+                particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
+                map_row:int = int((col_spacing*j) / self.map.info.resolution)
+                map_index:int = self.map.info.width * map_row + i
+                if map_index >= 0 and map_index < len(self.map.data):
+                    color = "light" if self.map.data[map_index] == 0 else "dark"
+                    new_particle = Particle(particle_pose, color, 0)
+                    new_particle.weight = init_weight
+                    self.particles.append(new_particle)
+        
+        # Fill remaining particles if needed
+        while len(self.particles) < num_particles:
+            x = random.uniform(0, self.map.info.width * self.map.info.resolution)
+            y = random.uniform(0, self.map.info.height * self.map.info.resolution)
+            particle_pose = Pose2D(x=x, y=y, theta=self.curr_angle)
+            map_row = int(y / self.map.info.resolution)
+            map_col = int(x / self.map.info.resolution)
+            if map_row >= 0 and map_col >= 0 and map_row < self.map.info.height and map_col < self.map.info.width:
+                map_index = map_col + (map_row * self.map.info.width)
+                if map_index >= 0 and map_index < len(self.map.data):
+                    color = "light" if self.map.data[map_index] == 0 else "dark"
+                    new_particle = Particle(particle_pose, color, 0)
+                    new_particle.weight = init_weight
+                    self.particles.append(new_particle)
 
 
 def main():
