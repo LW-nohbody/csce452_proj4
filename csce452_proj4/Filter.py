@@ -14,12 +14,12 @@ import math
 
 
 TWIST_MSG_PERIOD = 0.25
-DEBUG = False
+DEBUG = True
 TESTING = True
-TESTING_X = 2.21
-TESTING_Y = 5.64
-TESTING_THETA = -0.7
-TESTING_COLOR = "light"
+TESTING_X = 9.8
+TESTING_Y = 6.52
+TESTING_THETA = 1.67
+TESTING_COLOR = "dark"
 
 class ParticleFilter(Node):
     def __init__(self):
@@ -157,6 +157,7 @@ class ParticleFilter(Node):
                 new_y = self.testing_particle.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(self.testing_particle.state.theta)) * TWIST_MSG_PERIOD
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
             for p in self.particles:
+                p.state.theta = self.curr_angle
                 new_theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD
                 new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * TWIST_MSG_PERIOD
                 new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * TWIST_MSG_PERIOD
@@ -167,14 +168,15 @@ class ParticleFilter(Node):
                 new_y = self.testing_particle.state.y + lin_vel * math.sin(self.testing_particle.state.theta) * TWIST_MSG_PERIOD
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
             for p in self.particles:
+                p.state.theta = self.curr_angle
                 new_x = p.state.x + lin_vel * math.cos(p.state.theta) * TWIST_MSG_PERIOD
                 new_y = p.state.y + lin_vel * math.sin(p.state.theta) * TWIST_MSG_PERIOD
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                p.state = Pose2D(x=new_x, y=new_y, theta=p.state.theta)
         elif ang_vel != 0:
             if(TESTING):
                 self.testing_particle.state.theta = self.testing_particle.state.theta + ang_vel * TWIST_MSG_PERIOD
             for p in self.particles:
-                p.state.theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD        
+                p.state.theta = self.curr_angle + ang_vel * TWIST_MSG_PERIOD        
 
         # Simulate the noise in the movements
         std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
@@ -249,7 +251,7 @@ class ParticleFilter(Node):
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         
         while(len(new_particles) < len(self.particles)):
-            randNum:float = random.uniform(0.001, sum)
+            randNum:float = random.uniform(0, sum)
             found = False
 
             for i in range(1, len(cum_sum)):
@@ -261,7 +263,10 @@ class ParticleFilter(Node):
                     )
                     temp_particle.weight = self.particles[i-1].weight
                     new_particles.append(temp_particle)
+                    found = True
                     break
+                if(DEBUG and not found):
+                    print(f"Cant find weight for random number: {randNum}")
                     
         if(len(new_particles) != len(self.particles)) or (new_particles == []): 
             self.get_logger().info("ERROR: Particle arrays differ")
