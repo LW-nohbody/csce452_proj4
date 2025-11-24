@@ -15,10 +15,16 @@ import math
 
 TWIST_MSG_PERIOD = 0.25
 DEBUG = True
-TESTING = True
-TESTING_X = 9.8
-TESTING_Y = 6.52
-TESTING_THETA = 1.67
+TESTING = False
+TESTING_X = 2.21
+TESTING_Y = 5.64
+TESTING_THETA = -0.7
+# TESTING_X = 6.28
+# TESTING_Y = 3.13
+# TESTING_THETA = -0.45
+# TESTING_X = 9.80
+# TESTING_Y = 6.52
+# TESTING_THETA = 1.67
 TESTING_COLOR = "dark"
 
 class ParticleFilter(Node):
@@ -121,9 +127,9 @@ class ParticleFilter(Node):
             sum_weight += p.weight
         
         if sum_weight > 0.0:
-            best_pose.x /= sum_weight
-            best_pose.y /= sum_weight
-            best_pose.theta /= sum_weight
+            # best_pose.x /= sum_weight
+            # best_pose.y /= sum_weight
+            # best_pose.theta /= sum_weight
             self.get_logger().info(f"Published estimated pose: x={best_pose.x:.3f}, y={best_pose.y:.3f}, theta={best_pose.theta:.3f} (valid particles: {valid_particles}/{len(self.particles)})")
         else:
             self.get_logger().warn(f"total weight 0 - cannot publish pose. Valid particles: {valid_particles}/{len(self.particles)}")
@@ -251,13 +257,12 @@ class ParticleFilter(Node):
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
-        num_zero_sums = 1
         new_particles: list[Particle] = []
         for i in range(len(self.particles)):
             sum += self.particles[i].weight
             cum_sum.append(sum)
         
-        self.get_logger().info("Entering resampling loop")
+        # self.get_logger().info("Entering resampling loop")
 
         if sum == 0.0:
             self.get_logger().warn("All weights are 0 - reinitializing particles across map")
@@ -277,8 +282,8 @@ class ParticleFilter(Node):
                     new_particles.append(self.particles[i-1].copy())
                     found = True
                     break
-                if(DEBUG and not found):
-                    print(f"Cant find weight for random number: {randNum}")
+            if(DEBUG and not found):
+                print(f"Cant find weight for random number: {randNum}")
                     
         if(len(new_particles) != len(self.particles)) or (new_particles == []): 
             self.get_logger().info("ERROR: Particle arrays differ")
