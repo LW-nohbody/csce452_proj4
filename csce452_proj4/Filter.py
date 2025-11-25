@@ -14,12 +14,19 @@ import math
 
 
 TWIST_MSG_PERIOD = 0.25
+PARTICLE_SPACING = 0.1
 DEBUG = False
-TESTING = True
+TESTING = False
 TESTING_X = 2.21
 TESTING_Y = 5.64
 TESTING_THETA = -0.7
-TESTING_COLOR = "light"
+# TESTING_X = 6.28
+# TESTING_Y = 3.13
+# TESTING_THETA = -0.45
+# TESTING_X = 9.80
+# TESTING_Y = 6.52
+# TESTING_THETA = 1.67
+TESTING_COLOR = "dark"
 
 class ParticleFilter(Node):
     def __init__(self):
@@ -34,20 +41,35 @@ class ParticleFilter(Node):
         self.pubMap() # Intially create and publish the map
 
         # populate particles evenly over map, with the same weight
-        num_particles = 1000
+        particle_resolution:int = self.map.info.resolution // PARTICLE_SPACING
+        num_particles = self.map.info.width * self.map.info.height * particle_resolution
         init_weight:float = 1/num_particles
-        particles_per_col:int = math.ceil(num_particles/self.map.info.width)
-        col_spacing:float = self.map.info.height*self.map.info.resolution / particles_per_col
+        # particles_per_col:int = math.ceil(num_particles/self.map.info.width)
+        # col_spacing:float = self.map.info.height*self.map.info.resolution / particles_per_col
 
-        for i in range(self.map.info.width): # loops through the row
-            for j in range(particles_per_col): # adds to the columns
-                particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
-                map_row:int = int((col_spacing*j) / self.map.info.resolution)
-                map_index:int = self.map.info.width * map_row + i # map.data is in row major order
+        # for i in range(self.map.info.width): # loops through the row
+        #     for j in range(particles_per_col): # adds to the columns
+        #         particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
+        #         map_row:int = int((col_spacing*j) / self.map.info.resolution)
+        #         map_index:int = self.map.info.width * map_row + i # map.data is in row major order
+        #         color = "light" if self.map.data[map_index] == 0 else "dark"
+        #         new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
+        #         new_particle.weight = init_weight
+        #         self.particles.append(new_particle)
+        particles_in_row:int = int(self.map.info.width * particle_resolution)
+        particles_in_col:int = int(self.map.info.height * particle_resolution)
+        for i in range(particles_in_row):
+            for j in range(particles_in_col):
+                particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta = self.curr_angle)
+                map_row:int = j//particle_resolution
+                map_col:int = i//particle_resolution
+                map_index:int = int(map_row * self.map.info.width + map_col)
                 color = "light" if self.map.data[map_index] == 0 else "dark"
+
                 new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
                 new_particle.weight = init_weight
                 self.particles.append(new_particle)
+                
         
         if(TESTING):
             self.testing_particle = Particle(Pose2D(x=TESTING_X, y=TESTING_Y, theta=TESTING_THETA), TESTING_COLOR, 0)
@@ -121,9 +143,9 @@ class ParticleFilter(Node):
             sum_weight += p.weight
         
         if sum_weight > 0.0:
-            best_pose.x /= sum_weight
-            best_pose.y /= sum_weight
-            best_pose.theta /= sum_weight
+            # best_pose.x /= sum_weight
+            # best_pose.y /= sum_weight
+            # best_pose.theta /= sum_weight
             self.get_logger().info(f"Published estimated pose: x={best_pose.x:.3f}, y={best_pose.y:.3f}, theta={best_pose.theta:.3f} (valid particles: {valid_particles}/{len(self.particles)})")
         else:
             self.get_logger().warn(f"total weight 0 - cannot publish pose. Valid particles: {valid_particles}/{len(self.particles)}")
@@ -161,6 +183,7 @@ class ParticleFilter(Node):
                 new_y = self.testing_particle.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(self.testing_particle.state.theta)) * TWIST_MSG_PERIOD
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
             for p in self.particles:
+                p.state.theta = self.curr_angle
                 new_theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD
                 new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * TWIST_MSG_PERIOD
                 new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * TWIST_MSG_PERIOD
@@ -171,14 +194,15 @@ class ParticleFilter(Node):
                 new_y = self.testing_particle.state.y + lin_vel * math.sin(self.testing_particle.state.theta) * TWIST_MSG_PERIOD
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
             for p in self.particles:
+                p.state.theta = self.curr_angle
                 new_x = p.state.x + lin_vel * math.cos(p.state.theta) * TWIST_MSG_PERIOD
                 new_y = p.state.y + lin_vel * math.sin(p.state.theta) * TWIST_MSG_PERIOD
-                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                p.state = Pose2D(x=new_x, y=new_y, theta=p.state.theta)
         elif ang_vel != 0:
             if(TESTING):
                 self.testing_particle.state.theta = self.testing_particle.state.theta + ang_vel * TWIST_MSG_PERIOD
             for p in self.particles:
-                p.state.theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD        
+                p.state.theta = self.curr_angle + ang_vel * TWIST_MSG_PERIOD        
 
         # Simulate the noise in the movements
         std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
@@ -249,13 +273,12 @@ class ParticleFilter(Node):
         #Choose particles to keep with probability = weight of particle
         sum = 0
         cum_sum: list[float] = [sum]
-        num_zero_sums = 1
         new_particles: list[Particle] = []
         for i in range(len(self.particles)):
             sum += self.particles[i].weight
             cum_sum.append(sum)
         
-        self.get_logger().info("Entering resampling loop")
+        # self.get_logger().info("Entering resampling loop")
 
         if sum == 0.0:
             self.get_logger().warn("All weights are 0 - reinitializing particles across map")
@@ -266,7 +289,7 @@ class ParticleFilter(Node):
         # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
         
         while(len(new_particles) < len(self.particles)):
-            randNum:float = random.uniform(0, sum)  # Fixed: should start at 0, not 1
+            randNum:float = random.uniform(0, sum)
             found = False
 
             for i in range(1, len(cum_sum)):
@@ -275,15 +298,9 @@ class ParticleFilter(Node):
                     new_particles.append(self.particles[i-1].copy())
                     found = True
                     break
-            if not found:
-                self.get_logger().info(f"No particle found for randNum={randNum}, sum={sum}")
-                # Create a copy of the last particle
-                new_particles.append(self.particles[-1].copy())
-            
-            # print(len(new_particles))
-        
-        self.get_logger().info("exiting resample loop")
-            
+            if(DEBUG and not found):
+                print(f"Cant find weight for random number: {randNum}")
+                    
         if(len(new_particles) != len(self.particles)) or (new_particles == []): 
             self.get_logger().info("ERROR: Particle arrays differ")
             raise RuntimeError("new particle array must be same length as old particle array")
