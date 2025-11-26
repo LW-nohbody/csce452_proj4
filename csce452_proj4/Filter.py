@@ -11,6 +11,8 @@ import yaml
 from builtin_interfaces.msg import Time
 import random
 import math
+import numpy as np
+from sklearn.cluster import DBSCAN
 
 
 TWIST_MSG_PERIOD = 0.25
@@ -27,6 +29,8 @@ TESTING_THETA = -0.7
 # TESTING_Y = 6.52
 # TESTING_THETA = 1.67
 TESTING_COLOR = "dark"
+CLUSTER_EPS = 0.3
+CLUSTER_SAMPLES = 30
 
 class ParticleFilter(Node):
     def __init__(self):
@@ -133,7 +137,39 @@ class ParticleFilter(Node):
         sum_weight = 0.0
         valid_particles = 0
 
+        #Get clusters
+        temp = []
         for p in self.particles:
+            temp.append([p.state.x, p.state.y])
+        
+        np_temp = np.array(temp)
+        db = DBSCAN(eps=CLUSTER_EPS, min_samples=CLUSTER_SAMPLES)
+        fitted_list = db.fit(np_temp)
+        group_sizes = {}
+
+        # Find sizes of each cluster
+        for label in fitted_list.labels_:
+            if label == -1: continue
+            if(label in group_sizes):
+                group_sizes[label] += 1
+            else:
+                group_sizes[label] = 1
+        
+        # Find largest cluster
+        max_group_label = -1
+        max_group_size = 0
+        for label in group_sizes:
+            if(group_sizes[label] > max_group_size):
+                max_group_size = group_sizes[label]
+                max_group_label = label
+        
+        cluster_particles:list[Particle] = []
+        for i in range(len(fitted_list.labels_)):
+            if(fitted_list.labels_[i] == max_group_label):
+                cluster_particles.append(self.particles[i])
+
+        # Average cluster weights
+        for p in cluster_particles:
             if p.color == "invalid":
                 continue
             valid_particles += 1
@@ -141,11 +177,19 @@ class ParticleFilter(Node):
             best_pose.y += p.state.y * p.weight
             best_pose.theta += p.state.theta * p.weight
             sum_weight += p.weight
+        # for p in self.particles:
+        #     if p.color == "invalid":
+        #         continue
+        #     valid_particles += 1
+        #     best_pose.x += p.state.x * p.weight
+        #     best_pose.y += p.state.y * p.weight
+        #     best_pose.theta += p.state.theta * p.weight
+        #     sum_weight += p.weight
         
         if sum_weight > 0.0:
-            # best_pose.x /= sum_weight
-            # best_pose.y /= sum_weight
-            # best_pose.theta /= sum_weight
+            best_pose.x /= sum_weight
+            best_pose.y /= sum_weight
+            best_pose.theta /= sum_weight
             self.get_logger().info(f"Published estimated pose: x={best_pose.x:.3f}, y={best_pose.y:.3f}, theta={best_pose.theta:.3f} (valid particles: {valid_particles}/{len(self.particles)})")
         else:
             self.get_logger().warn(f"total weight 0 - cannot publish pose. Valid particles: {valid_particles}/{len(self.particles)}")
