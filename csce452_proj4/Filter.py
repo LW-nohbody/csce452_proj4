@@ -11,14 +11,15 @@ import yaml
 from builtin_interfaces.msg import Time
 import random
 import math
-import numpy as np
-from sklearn.cluster import DBSCAN
+# import numpy as np
+# from sklearn.cluster import DBSCAN
 
 
-TWIST_MSG_PERIOD = 0.25
-PARTICLE_SPACING = 0.1
+# TWIST_MSG_PERIOD = 0.25
+# TWIST_TURN_MSG_PERIOD = 0.6
+PARTICLE_SPACING = 0.2
 DEBUG = False
-TESTING = False
+TESTING = True
 TESTING_X = 2.21
 TESTING_Y = 5.64
 TESTING_THETA = -0.7
@@ -29,8 +30,8 @@ TESTING_THETA = -0.7
 # TESTING_Y = 6.52
 # TESTING_THETA = 1.67
 TESTING_COLOR = "dark"
-CLUSTER_EPS = 0.3
-CLUSTER_SAMPLES = 30
+# CLUSTER_EPS = 0.3
+# CLUSTER_SAMPLES = 30
 
 class ParticleFilter(Node):
     def __init__(self):
@@ -85,9 +86,14 @@ class ParticleFilter(Node):
         self.est_pose = self.create_publisher(Pose2D, '/estimated_pose', 10)
         self.best_estimate = self.create_timer(2, self.pubBestPosition) #publish every 2 seconds
 
+
+        # save last Twist msg and time received
+        self.last_twist_time = 0.0
+        self.last_twist_msg: Twist = None
         #Subscribe to /cmd_vel topic
         self.acrtion_msgs = self.create_subscription(Twist, '/cmd_vel', self.getAction, 10)
         #Sub to /floor_sensor topic
+        self.new_obs: int = 0
         self.obs_msgs = self.create_subscription(UInt8,'/floor_sensor', self.getObservation, 10)
         # sub to /compass topic
         self.compass_msgs = self.create_subscription(Float32, '/compass', self.getAngle, 10)
@@ -137,47 +143,39 @@ class ParticleFilter(Node):
         sum_weight = 0.0
         valid_particles = 0
 
-        #Get clusters
-        temp = []
-        for p in self.particles:
-            temp.append([p.state.x, p.state.y])
-        
-        np_temp = np.array(temp)
-        db = DBSCAN(eps=CLUSTER_EPS, min_samples=CLUSTER_SAMPLES)
-        fitted_list = db.fit(np_temp)
-        group_sizes = {}
-
-        # Find sizes of each cluster
-        for label in fitted_list.labels_:
-            if label == -1: continue
-            if(label in group_sizes):
-                group_sizes[label] += 1
-            else:
-                group_sizes[label] = 1
-        
-        # Find largest cluster
-        max_group_label = -1
-        max_group_size = 0
-        for label in group_sizes:
-            if(group_sizes[label] > max_group_size):
-                max_group_size = group_sizes[label]
-                max_group_label = label
-        
-        cluster_particles:list[Particle] = []
-        for i in range(len(fitted_list.labels_)):
-            if(fitted_list.labels_[i] == max_group_label):
-                cluster_particles.append(self.particles[i])
-
-        # Average cluster weights
-        for p in cluster_particles:
-            if p.color == "invalid":
-                continue
-            valid_particles += 1
-            best_pose.x += p.state.x * p.weight
-            best_pose.y += p.state.y * p.weight
-            best_pose.theta += p.state.theta * p.weight
-            sum_weight += p.weight
+        # #Get clusters
+        # temp = []
         # for p in self.particles:
+        #     temp.append([p.state.x, p.state.y])
+        
+        # np_temp = np.array(temp)
+        # db = DBSCAN(eps=CLUSTER_EPS, min_samples=CLUSTER_SAMPLES)
+        # fitted_list = db.fit(np_temp)
+        # group_sizes = {}
+
+        # # Find sizes of each cluster
+        # for label in fitted_list.labels_:
+        #     if label == -1: continue
+        #     if(label in group_sizes):
+        #         group_sizes[label] += 1
+        #     else:
+        #         group_sizes[label] = 1
+        
+        # # Find largest cluster
+        # max_group_label = -1
+        # max_group_size = 0
+        # for label in group_sizes:
+        #     if(group_sizes[label] > max_group_size):
+        #         max_group_size = group_sizes[label]
+        #         max_group_label = label
+        
+        # cluster_particles:list[Particle] = []
+        # for i in range(len(fitted_list.labels_)):
+        #     if(fitted_list.labels_[i] == max_group_label):
+        #         cluster_particles.append(self.particles[i])
+
+        # # Average cluster weights
+        # for p in cluster_particles:
         #     if p.color == "invalid":
         #         continue
         #     valid_particles += 1
@@ -185,6 +183,14 @@ class ParticleFilter(Node):
         #     best_pose.y += p.state.y * p.weight
         #     best_pose.theta += p.state.theta * p.weight
         #     sum_weight += p.weight
+        for p in self.particles:
+            if p.color == "invalid":
+                continue
+            valid_particles += 1
+            best_pose.x += p.state.x * p.weight
+            best_pose.y += p.state.y * p.weight
+            best_pose.theta += p.state.theta * p.weight
+            sum_weight += p.weight
         
         if sum_weight > 0.0:
             best_pose.x /= sum_weight
@@ -204,52 +210,63 @@ class ParticleFilter(Node):
         self.curr_angle = msg.data
 
     def getObservation(self, msg:UInt8):
-        newObs: int = msg.data
+        self.new_obs = msg.data
         #After getting the new observation, reweight each particle
-        self.reweight(newObs)
+        # self.reweight(self.new_obs)
 
-        #After reweighting all particles, resample them
-        self.resample()
+        # #After reweighting all particles, resample them
+        # self.resample()
 
     def getAction(self, msg:Twist):
-        lin_vel = msg.linear.x
-        ang_vel = msg.angular.z
+        if(self.last_twist_msg == None):
+            self.last_twist_msg = msg
+            self.last_twist_time = self.get_clock().now()
+        else:
+            #After getting the new action, forward projection each particle based on last action
+            time_received = self.get_clock().now()
+            duration = round((time_received - self.last_twist_time).nanoseconds * (1e-9), 3)
+            self.forwardProjection(self.last_twist_msg.linear.x, self.last_twist_msg.angular.z, duration)
+            self.last_twist_msg = msg 
+            self.last_twist_time = time_received
+        
 
-        #After getting the new action, forward projection each particle
-        self.forwardProjection(lin_vel, ang_vel)
-
-    def forwardProjection(self, lin_vel, ang_vel):
+    def forwardProjection(self, lin_vel, ang_vel, twist_time):
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             if(TESTING):
-                new_theta = self.testing_particle.state.theta + ang_vel * TWIST_MSG_PERIOD
-                new_x = self.testing_particle.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(self.testing_particle.state.theta)) * TWIST_MSG_PERIOD
-                new_y = self.testing_particle.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(self.testing_particle.state.theta)) * TWIST_MSG_PERIOD
+                new_theta = self.curr_angle
+                new_x = self.testing_particle.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(self.testing_particle.state.theta)) * twist_time
+                new_y = self.testing_particle.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(self.testing_particle.state.theta)) * twist_time
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
             for p in self.particles:
-                p.state.theta = self.curr_angle
-                new_theta = p.state.theta + ang_vel * TWIST_MSG_PERIOD
-                new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * TWIST_MSG_PERIOD
-                new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * TWIST_MSG_PERIOD
+                # p.state.theta = self.curr_angle
+                # new_theta = p.state.theta + ang_vel * twist_time
+                new_theta = self.curr_angle
+                new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * twist_time
+                new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * twist_time
                 p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
             if(TESTING):
-                new_x = self.testing_particle.state.x + lin_vel * math.cos(self.testing_particle.state.theta) * TWIST_MSG_PERIOD
-                new_y = self.testing_particle.state.y + lin_vel * math.sin(self.testing_particle.state.theta) * TWIST_MSG_PERIOD
-                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
+                new_x = self.testing_particle.state.x + lin_vel * math.cos(self.testing_particle.state.theta) * twist_time
+                new_y = self.testing_particle.state.y + lin_vel * math.sin(self.testing_particle.state.theta) * twist_time
+                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.testing_particle.state.theta)
             for p in self.particles:
+                # p.state.theta = self.curr_angle
+                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * twist_time
+                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * twist_time
                 p.state.theta = self.curr_angle
-                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * TWIST_MSG_PERIOD
-                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * TWIST_MSG_PERIOD
                 p.state = Pose2D(x=new_x, y=new_y, theta=p.state.theta)
         elif ang_vel != 0:
             if(TESTING):
-                self.testing_particle.state.theta = self.testing_particle.state.theta + ang_vel * TWIST_MSG_PERIOD
+                # self.testing_particle.state.theta = self.testing_particle.state.theta + ang_vel * twist_time
+                self.testing_particle.state.theta = self.curr_angle
             for p in self.particles:
-                p.state.theta = self.curr_angle + ang_vel * TWIST_MSG_PERIOD        
+                # p.state.theta = self.curr_angle + ang_vel * twist_time  
+                p.state.theta = self.curr_angle
+      
 
         # Simulate the noise in the movements
-        std_dev = 0.01 # The spread on the gaussian noise TODO: Fine tune
+        std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
         num_out_of_bounds = 0
         for p in self.particles:
             # Add gaussian noise to new position
@@ -263,7 +280,7 @@ class ParticleFilter(Node):
             ): num_out_of_bounds += 1
 
             if(num_out_of_bounds == len(self.particles)):
-                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}")
+                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}, time: {twist_time}")
 
 
             # Update expected color
@@ -291,7 +308,10 @@ class ParticleFilter(Node):
             maxx = max(p.state.x for p in self.particles)
             miny = min(p.state.y for p in self.particles)
             maxy = max(p.state.y for p in self.particles)
-            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}]")
+            self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}], time: {twist_time}")
+        
+        # After projecting, reweight with current observation
+        self.reweight(self.new_obs)
          
 
     def reweight(self, obs: int):
@@ -312,6 +332,9 @@ class ParticleFilter(Node):
                 p.weight /= sum_weights
         else:
             self.get_logger().warn("All weights are zero after reweighting.")
+        
+        # After reweighting, resample particles
+        self.resample()
     
     def resample(self):
         #Choose particles to keep with probability = weight of particle
