@@ -18,8 +18,9 @@ import math
 # TWIST_MSG_PERIOD = 0.25
 # TWIST_TURN_MSG_PERIOD = 0.6
 PARTICLE_SPACING = 0.2
+PARTICLE_NUMBER = 1000
 DEBUG = False
-TESTING = True
+TESTING = False
 TESTING_X = 2.21
 TESTING_Y = 5.64
 TESTING_THETA = -0.7
@@ -48,32 +49,63 @@ class ParticleFilter(Node):
         # populate particles evenly over map, with the same weight
         particle_resolution:int = self.map.info.resolution // PARTICLE_SPACING
         num_particles = self.map.info.width * self.map.info.height * particle_resolution
-        init_weight:float = 1/num_particles
-        # particles_per_col:int = math.ceil(num_particles/self.map.info.width)
-        # col_spacing:float = self.map.info.height*self.map.info.resolution / particles_per_col
+        if(num_particles > PARTICLE_NUMBER):
+            # intialize with particle number
+            particles_per_row_col = math.floor(math.sqrt(PARTICLE_NUMBER))
+            width_spacing = self.map.info.width * self.map.info.resolution / (particles_per_row_col- 1)
+            height_spacing = self.map.info.height * self.map.info.resolution / (particles_per_row_col- 1)
+            init_weight:float = 1/PARTICLE_NUMBER
 
-        # for i in range(self.map.info.width): # loops through the row
-        #     for j in range(particles_per_col): # adds to the columns
-        #         particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
-        #         map_row:int = int((col_spacing*j) / self.map.info.resolution)
-        #         map_index:int = self.map.info.width * map_row + i # map.data is in row major order
+            for i in range(particles_per_row_col): # loops through the row
+                for j in range(particles_per_row_col): # adds to the columns
+                    particle_pose = Pose2D(x=i*width_spacing, y=height_spacing*j, theta=self.curr_angle)
+                    map_row:int = (height_spacing*j) // self.map.info.resolution
+                    map_col:int = (width_spacing * i) // self.map.info.resolution
+                    if(map_row == self.map.info.height): map_row -= 1
+                    if(map_col == self.map.info.width): map_col -= 1
+                    map_index:int = int(self.map.info.width * map_row + map_col) # map.data is in row major order
+                    if(map_index >= len(self.map.data)):
+                        print(f"row: {map_row}, column: {map_col}, max row: {self.map.info.height}, max col: {self.map.info.width}")
+                    color = "light" if self.map.data[map_index] == 0 else "dark"
+                    new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
+                    new_particle.weight = init_weight
+                    self.particles.append(new_particle)
+        else:
+            # Initialize with particle spacing
+            particle_resolution:int = self.map.info.resolution // PARTICLE_SPACING
+            num_particles = self.map.info.width * self.map.info.height * particle_resolution
+            init_weight:float = 1/num_particles
+            particles_in_row:int = int(self.map.info.width * particle_resolution)
+            particles_in_col:int = int(self.map.info.height * particle_resolution)
+            for i in range(particles_in_row):
+                for j in range(particles_in_col):
+                    particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta = self.curr_angle)
+                    map_row:int = j//particle_resolution
+                    map_col:int = i//particle_resolution
+                    map_index:int = int(map_row * self.map.info.width + map_col)
+                    color = "light" if self.map.data[map_index] == 0 else "dark"
+
+                    new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
+                    new_particle.weight = init_weight
+                    self.particles.append(new_particle)
+
+        
+        # particle_resolution:int = self.map.info.resolution // PARTICLE_SPACING
+        # num_particles = self.map.info.width * self.map.info.height * particle_resolution
+        # init_weight:float = 1/num_particles
+        # particles_in_row:int = int(self.map.info.width * particle_resolution)
+        # particles_in_col:int = int(self.map.info.height * particle_resolution)
+        # for i in range(particles_in_row):
+        #     for j in range(particles_in_col):
+        #         particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta = self.curr_angle)
+        #         map_row:int = j//particle_resolution
+        #         map_col:int = i//particle_resolution
+        #         map_index:int = int(map_row * self.map.info.width + map_col)
         #         color = "light" if self.map.data[map_index] == 0 else "dark"
+
         #         new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
         #         new_particle.weight = init_weight
         #         self.particles.append(new_particle)
-        particles_in_row:int = int(self.map.info.width * particle_resolution)
-        particles_in_col:int = int(self.map.info.height * particle_resolution)
-        for i in range(particles_in_row):
-            for j in range(particles_in_col):
-                particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta = self.curr_angle)
-                map_row:int = j//particle_resolution
-                map_col:int = i//particle_resolution
-                map_index:int = int(map_row * self.map.info.width + map_col)
-                color = "light" if self.map.data[map_index] == 0 else "dark"
-
-                new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
-                new_particle.weight = init_weight
-                self.particles.append(new_particle)
                 
         
         if(TESTING):
@@ -247,9 +279,9 @@ class ParticleFilter(Node):
                 p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
             if(TESTING):
-                new_x = self.testing_particle.state.x + lin_vel * math.cos(self.testing_particle.state.theta) * twist_time
-                new_y = self.testing_particle.state.y + lin_vel * math.sin(self.testing_particle.state.theta) * twist_time
-                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.testing_particle.state.theta)
+                new_x = self.testing_particle.state.x + lin_vel * math.cos(self.curr_angle) * twist_time
+                new_y = self.testing_particle.state.y + lin_vel * math.sin(self.curr_angle) * twist_time
+                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
             for p in self.particles:
                 # p.state.theta = self.curr_angle
                 new_x = p.state.x + lin_vel * math.cos(p.state.theta) * twist_time
