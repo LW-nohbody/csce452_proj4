@@ -20,13 +20,13 @@ import math
 PARTICLE_SPACING = 0.2
 PARTICLE_NUMBER = 1000
 DEBUG = False
-TESTING = False
-TESTING_X = 2.21
-TESTING_Y = 5.64
-TESTING_THETA = -0.7
-# TESTING_X = 6.28
-# TESTING_Y = 3.13
-# TESTING_THETA = -0.45
+TESTING = True
+# TESTING_X = 2.21
+# TESTING_Y = 5.64
+# TESTING_THETA = -0.7
+TESTING_X = 6.28
+TESTING_Y = 3.13
+TESTING_THETA = -0.45
 # TESTING_X = 9.80
 # TESTING_Y = 6.52
 # TESTING_THETA = 1.67
@@ -58,7 +58,8 @@ class ParticleFilter(Node):
 
             for i in range(particles_per_row_col): # loops through the row
                 for j in range(particles_per_row_col): # adds to the columns
-                    particle_pose = Pose2D(x=i*width_spacing, y=height_spacing*j, theta=self.curr_angle)
+                    init_theta = random.uniform(-math.pi, math.pi)
+                    particle_pose = Pose2D(x=i*width_spacing, y=height_spacing*j, theta=init_theta)
                     map_row:int = (height_spacing*j) // self.map.info.resolution
                     map_col:int = (width_spacing * i) // self.map.info.resolution
                     if(map_row == self.map.info.height): map_row -= 1
@@ -79,7 +80,8 @@ class ParticleFilter(Node):
             particles_in_col:int = int(self.map.info.height * particle_resolution)
             for i in range(particles_in_row):
                 for j in range(particles_in_col):
-                    particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta = self.curr_angle)
+                    init_theta = random.uniform(-math.pi, math.pi)
+                    particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta=init_theta)
                     map_row:int = j//particle_resolution
                     map_col:int = i//particle_resolution
                     map_index:int = int(map_row * self.map.info.width + map_col)
@@ -244,10 +246,10 @@ class ParticleFilter(Node):
     def getObservation(self, msg:UInt8):
         self.new_obs = msg.data
         #After getting the new observation, reweight each particle
-        # self.reweight(self.new_obs)
+        self.reweight(self.new_obs)
 
         # #After reweighting all particles, resample them
-        # self.resample()
+        self.resample()
 
     def getAction(self, msg:Twist):
         if(self.last_twist_msg == None):
@@ -256,9 +258,9 @@ class ParticleFilter(Node):
         else:
             #After getting the new action, forward projection each particle based on last action
             time_received = self.get_clock().now()
-            duration = round((time_received - self.last_twist_time).nanoseconds * (1e-9), 3)
+            duration = (time_received - self.last_twist_time).nanoseconds * (1e-9)
             self.forwardProjection(self.last_twist_msg.linear.x, self.last_twist_msg.angular.z, duration)
-            self.last_twist_msg = msg 
+            self.last_twist_msg = msg
             self.last_twist_time = time_received
         
 
@@ -266,16 +268,26 @@ class ParticleFilter(Node):
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             if(TESTING):
+                old_theta = self.testing_particle.state.theta
+                radius = lin_vel / ang_vel
+
+                center_x = self.testing_particle.state.x - radius * math.sin(old_theta)
+                center_y = self.testing_particle.state.y + radius * math.cos(old_theta)
+
                 new_theta = self.curr_angle
-                new_x = self.testing_particle.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(self.testing_particle.state.theta)) * twist_time
-                new_y = self.testing_particle.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(self.testing_particle.state.theta)) * twist_time
+                new_x = center_x + radius * math.sin(new_theta)
+                new_y = center_y - radius * math.cos(new_theta)
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
             for p in self.particles:
-                # p.state.theta = self.curr_angle
-                # new_theta = p.state.theta + ang_vel * twist_time
-                new_theta = self.curr_angle
-                new_x = p.state.x + lin_vel/ang_vel * (math.sin(new_theta) - math.sin(p.state.theta)) * twist_time
-                new_y = p.state.y - lin_vel/ang_vel * (math.cos(new_theta) - math.cos(p.state.theta)) * twist_time
+                old_theta = p.state.theta
+                radius = lin_vel / ang_vel
+
+                center_x = p.state.x - radius * math.sin(old_theta)
+                center_y = p.state.y + radius * math.cos(old_theta)
+
+                new_theta = self.curr_angle + random.gauss(0, 0.05)
+                new_x = center_x + radius * math.sin(new_theta)
+                new_y = center_y - radius * math.cos(new_theta)
                 p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
             if(TESTING):
@@ -284,17 +296,15 @@ class ParticleFilter(Node):
                 self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
             for p in self.particles:
                 # p.state.theta = self.curr_angle
-                new_x = p.state.x + lin_vel * math.cos(p.state.theta) * twist_time
-                new_y = p.state.y + lin_vel * math.sin(p.state.theta) * twist_time
-                p.state.theta = self.curr_angle
-                p.state = Pose2D(x=new_x, y=new_y, theta=p.state.theta)
+                new_x = p.state.x + lin_vel * math.cos(self.curr_angle) * twist_time
+                new_y = p.state.y + lin_vel * math.sin(self.curr_angle) * twist_time
+                p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
         elif ang_vel != 0:
             if(TESTING):
-                # self.testing_particle.state.theta = self.testing_particle.state.theta + ang_vel * twist_time
                 self.testing_particle.state.theta = self.curr_angle
             for p in self.particles:
                 # p.state.theta = self.curr_angle + ang_vel * twist_time  
-                p.state.theta = self.curr_angle
+                p.state.theta = self.curr_angle + random.gauss(0, 0.05)
       
 
         # Simulate the noise in the movements
@@ -311,10 +321,6 @@ class ParticleFilter(Node):
                 or (p.state.y < 0)
             ): num_out_of_bounds += 1
 
-            if(num_out_of_bounds == len(self.particles)):
-                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}, time: {twist_time}")
-
-
             # Update expected color
             map_row:int = math.floor(p.state.y/self.map.info.resolution)
             map_col:int = math.floor(p.state.x/self.map.info.resolution)
@@ -328,7 +334,9 @@ class ParticleFilter(Node):
                 p.color = "invalid"
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
-
+        if(num_out_of_bounds == len(self.particles)):
+                raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}, time: {twist_time}")
+        
         if(TESTING):
             map_row:int = math.floor(self.testing_particle.state.y/self.map.info.resolution)
             map_col:int = math.floor(self.testing_particle.state.x/self.map.info.resolution)
@@ -343,7 +351,7 @@ class ParticleFilter(Node):
             self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}], time: {twist_time}")
         
         # After projecting, reweight with current observation
-        self.reweight(self.new_obs)
+        # self.reweight(self.new_obs)
          
 
     def reweight(self, obs: int):
@@ -418,7 +426,8 @@ class ParticleFilter(Node):
             for j in range(particles_per_col):
                 if len(self.particles) >= num_particles:
                     break
-                particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=self.curr_angle)
+                init_theta = random.uniform(-math.pi, math.pi)
+                particle_pose = Pose2D(x=self.map.info.resolution * (i + 0.5), y=col_spacing*j, theta=init_theta)
                 map_row:int = int((col_spacing*j) / self.map.info.resolution)
                 map_index:int = self.map.info.width * map_row + i
                 if map_index >= 0 and map_index < len(self.map.data):
