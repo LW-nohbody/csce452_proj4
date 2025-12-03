@@ -303,8 +303,8 @@ class ParticleFilter(Node):
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
             if(TESTING):
-                old_theta = last_twist_angle
-                radius = lin_vel / ang_vel
+                # old_theta = last_twist_angle
+                # radius = lin_vel / ang_vel
 
                 # center_x = self.testing_particle.state.x - radius * math.sin(old_theta)
                 # center_y = self.testing_particle.state.y + radius * math.cos(old_theta)
