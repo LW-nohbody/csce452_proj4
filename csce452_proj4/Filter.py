@@ -15,22 +15,9 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 
 
-# TWIST_MSG_PERIOD = 0.25
-# TWIST_TURN_MSG_PERIOD = 0.6
 PARTICLE_SPACING = 0.1
 PARTICLE_NUMBER = 1000
 DEBUG = False
-TESTING = False
-# TESTING_X = 2.21
-# TESTING_Y = 5.64
-# TESTING_THETA = -0.7
-# TESTING_X = 6.28
-# TESTING_Y = 3.13
-# TESTING_THETA = -0.45
-# TESTING_X = 9.80
-# TESTING_Y = 6.52
-# TESTING_THETA = 1.67
-# TESTING_COLOR = "dark"
 CLUSTER_EPS = 0.3
 CLUSTER_SAMPLES = 30
 
@@ -91,28 +78,6 @@ class ParticleFilter(Node):
                     new_particle.weight = init_weight
                     self.particles.append(new_particle)
 
-        
-        # particle_resolution:int = self.map.info.resolution // PARTICLE_SPACING
-        # num_particles = self.map.info.width * self.map.info.height * particle_resolution
-        # init_weight:float = 1/num_particles
-        # particles_in_row:int = int(self.map.info.width * particle_resolution)
-        # particles_in_col:int = int(self.map.info.height * particle_resolution)
-        # for i in range(particles_in_row):
-        #     for j in range(particles_in_col):
-        #         particle_pose = Pose2D(x=i*PARTICLE_SPACING, y=j*PARTICLE_SPACING, theta = self.curr_angle)
-        #         map_row:int = j//particle_resolution
-        #         map_col:int = i//particle_resolution
-        #         map_index:int = int(map_row * self.map.info.width + map_col)
-        #         color = "light" if self.map.data[map_index] == 0 else "dark"
-
-        #         new_particle = Particle(particle_pose, color, 0) # No observation for this particle, inserted place holder to create particle, then force set weight
-        #         new_particle.weight = init_weight
-        #         self.particles.append(new_particle)
-                
-        
-        if(TESTING):
-            self.testing_particle = Particle(Pose2D(x=TESTING_X, y=TESTING_Y, theta=TESTING_THETA), TESTING_COLOR, 0)
-            self.test_pub = self.create_publisher(Pose2D, '/true_pos', 10)
         # publish map every 5 seconds
         self.map_timer = self.create_timer(5, self.pubMap)
 
@@ -177,7 +142,6 @@ class ParticleFilter(Node):
         self.map_pub.publish(msg)
     
     def pubBestPosition(self):
-        # TODO: What about clusters? Weighted average won't deal well with multiple clusters
         best_pose: Pose2D = Pose2D(x=0, y=0, theta=0)
         sum_weight = 0.0
         valid_particles = 0
@@ -228,17 +192,7 @@ class ParticleFilter(Node):
             sum_weight += weight
             sum_sin_theta += math.sin(p.state.theta) * weight
             sum_cos_theta += math.cos(p.state.theta) * weight
-        # for p in self.particles:
-        #     if p.color == "invalid":
-        #         continue
-        #     valid_particles += 1
-        #     weight = p.weight
-        #     best_pose.x += p.state.x * weight
-        #     best_pose.y += p.state.y * weight
-        #     best_pose.theta += p.state.theta * weight
-        #     sum_weight += weight
-        #     sum_sin_theta += math.sin(p.state.theta) * weight
-        #     sum_cos_theta += math.cos(p.state.theta) * weight
+
         
         if sum_weight > 0.0:
             best_pose.x /= sum_weight
@@ -256,8 +210,6 @@ class ParticleFilter(Node):
 
         msg:Pose2D = best_pose
         self.est_pose.publish(msg)
-        if(TESTING):
-            self.test_pub.publish(self.testing_particle.state)
     
     def motion_update_loop(self):
         now = self.get_clock().now()
@@ -284,77 +236,31 @@ class ParticleFilter(Node):
         self.resample()
 
     def getAction(self, msg:Twist):
-        # if(self.last_twist_msg == None):
-        #     self.last_twist_msg = msg
-        #     self.last_twist_time = self.get_clock().now()
-        #     self.last_twist_angle = self.curr_angle
-        # else:
-        #     #After getting the new action, forward projection each particle based on last action
-        #     time_received = self.get_clock().now()
-        #     duration = (time_received - self.last_twist_time).nanoseconds * (1e-9)
-        #     self.forwardProjection(self.last_twist_msg.linear.x, self.last_twist_msg.angular.z, duration, self.last_twist_angle)
-        #     self.last_twist_msg = msg
-        #     self.last_twist_time = time_received
-        #     self.last_twist_angle = self.curr_angle
         self.last_twist_msg = msg
         
 
     def forwardProjection(self, lin_vel, ang_vel, twist_time, last_twist_angle):
         # forward project movement of particle based on action
         if(lin_vel != 0) and (ang_vel != 0):
-            if(TESTING):
-                # old_theta = last_twist_angle
-                # radius = lin_vel / ang_vel
-
-                # center_x = self.testing_particle.state.x - radius * math.sin(old_theta)
-                # center_y = self.testing_particle.state.y + radius * math.cos(old_theta)
-
-                distance = lin_vel * twist_time
-                new_x = self.testing_particle.state.x + distance * math.cos(last_twist_angle)
-                new_y = self.testing_particle.state.y + distance * math.sin(last_twist_angle)
-                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
-
-                # new_theta = last_twist_angle
-                # new_x = center_x + radius * math.sin(new_theta)
-                # new_y = center_y - radius * math.cos(new_theta)
-                # self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
             for p in self.particles:
-                # old_theta = last_twist_angle
-                # radius = lin_vel / ang_vel
-
-                # center_x = p.state.x - radius * math.sin(old_theta)
-                # center_y = p.state.y + radius * math.cos(old_theta)
-
                 distance = lin_vel * twist_time
                 new_x = p.state.x + distance * math.cos(last_twist_angle)
                 new_y = p.state.y + distance * math.sin(last_twist_angle)
                 new_theta = self.curr_angle + random.gauss(0, 0.05)
                 p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
 
-                # new_theta = self.curr_angle + random.gauss(0, 0.05)
-                # new_x = center_x + radius * math.sin(new_theta)
-                # new_y = center_y - radius * math.cos(new_theta)
-                # p.state = Pose2D(x=new_x, y=new_y, theta=new_theta)
         elif lin_vel != 0:
-            if(TESTING):
-                new_x = self.testing_particle.state.x + lin_vel * math.cos(last_twist_angle) * twist_time
-                new_y = self.testing_particle.state.y + lin_vel * math.sin(last_twist_angle) * twist_time
-                self.testing_particle.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle)
             for p in self.particles:
-                # p.state.theta = self.curr_angle
                 new_x = p.state.x + lin_vel * math.cos(last_twist_angle) * twist_time
                 new_y = p.state.y + lin_vel * math.sin(last_twist_angle) * twist_time
                 p.state = Pose2D(x=new_x, y=new_y, theta=self.curr_angle + random.gauss(0, 0.05))
         elif ang_vel != 0:
-            if(TESTING):
-                self.testing_particle.state.theta = last_twist_angle
             for p in self.particles:
-                # p.state.theta = self.curr_angle + ang_vel * twist_time  
                 p.state.theta = self.curr_angle + random.gauss(0, 0.05)
       
 
         # Simulate the noise in the movements
-        std_dev = 0.1 # The spread on the gaussian noise TODO: Fine tune
+        std_dev = 0.1 # The spread on the gaussian noise
         num_out_of_bounds = 0
         for p in self.particles:
             # Add gaussian noise to new position
@@ -372,7 +278,6 @@ class ParticleFilter(Node):
             map_col:int = math.floor(p.state.x/self.map.info.resolution)
             if(map_row < 0 or map_col < 0 or 
                map_row >= self.map.info.height or map_col >= self.map.info.width):
-                # self.get_logger().info(f"Particle positioned at ({p.state.x}, {p.state.y}) is outside of map with width {self.map.info.width}, height {self.map.info.height}, and reso {self.map.info.resolution}")
                 p.color = "invalid"
                 continue
             map_index = map_col + (map_row * self.map.info.width)
@@ -381,16 +286,9 @@ class ParticleFilter(Node):
                 continue
             p.color = "light" if self.map.data[map_index] == 0 else "dark"
         if(num_out_of_bounds == len(self.particles)):
-                # raise RuntimeError(f"All particles invalid from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}, time: {twist_time}")
                 self.get_logger().warn(f"All particles out of bounds from forward projection, lin_vel: {lin_vel}, ang_vel: {ang_vel}, time: {twist_time}")
                 self.reinitializeParticles()
                 return
-        
-        if(TESTING):
-            map_row:int = math.floor(self.testing_particle.state.y/self.map.info.resolution)
-            map_col:int = math.floor(self.testing_particle.state.x/self.map.info.resolution)
-            map_index = map_col + (map_row * self.map.info.width)
-            self.testing_particle.color = "light" if self.map.data[map_index] == 0 else "dark"
         
         if(DEBUG):
             minx = min(p.state.x for p in self.particles)
@@ -398,9 +296,6 @@ class ParticleFilter(Node):
             miny = min(p.state.y for p in self.particles)
             maxy = max(p.state.y for p in self.particles)
             self.get_logger().info(f"After projection: x in [{minx:.2f}, {maxx:.2f}], y in [{miny:.2f}, {maxy:.2f}], time: {twist_time}")
-        
-        # After projecting, reweight with current observation
-        # self.reweight(self.new_obs)
          
 
     def reweight(self, obs: int):
@@ -421,47 +316,8 @@ class ParticleFilter(Node):
                 p.weight /= sum_weights
         else:
             self.get_logger().warn("All weights are zero after reweighting.")
-        
-        # After reweighting, resample particles
-        self.resample()
+
     
-    # def resample(self):
-    #     #Choose particles to keep with probability = weight of particle
-    #     sum = 0
-    #     cum_sum: list[float] = [sum]
-    #     new_particles: list[Particle] = []
-    #     for i in range(len(self.particles)):
-    #         sum += self.particles[i].weight
-    #         cum_sum.append(sum)
-        
-    #     # self.get_logger().info("Entering resampling loop")
-
-    #     if sum == 0.0:
-    #         self.get_logger().warn("All weights are 0 - reinitializing particles across map")
-    #         # Reinitialize particles when all weights are 0 (recovery mechanism)
-    #         self.reinitializeParticles()
-    #         return
-        
-    #     # Add the particle whose cumulaive sum is greater than chosen number but whose prior particle's sum is less than the chosen number
-        
-    #     while(len(new_particles) < len(self.particles)):
-    #         randNum:float = random.uniform(0, sum)
-    #         found = False
-
-    #         for i in range(1, len(cum_sum)):
-    #             if(randNum <= cum_sum[i]) and (randNum > cum_sum[i-1]):
-    #                 # Create a copy of the particle instead of using the same reference
-    #                 new_particles.append(self.particles[i-1].copy())
-    #                 found = True
-    #                 break
-    #         if(DEBUG and not found):
-    #             print(f"Cant find weight for random number: {randNum}")
-                    
-    #     if(len(new_particles) != len(self.particles)) or (new_particles == []): 
-    #         self.get_logger().info("ERROR: Particle arrays differ")
-    #         raise RuntimeError("new particle array must be same length as old particle array")
-    #     else:
-    #         self.particles = new_particles
     
     def resample(self):
         new_particles: list[Particle] = []
@@ -499,6 +355,7 @@ class ParticleFilter(Node):
             return
         
         self.particles = new_particles
+
     def reinitializeParticles(self):
         """Reinitialize particles evenly across the map when filter loses track"""
         num_particles = len(self.particles)
